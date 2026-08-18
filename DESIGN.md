@@ -1,281 +1,172 @@
 # Corvid
 
 **Does a freight agent learn its customers the way a human operator
-does?** Corvid simulates customer relationships over time. Synthetic
-customers send freight requests in a sequence. An agent collects
-knowledge about each customer in a temporal knowledge graph. The
-knowledge makes the agent better at the next request.
+does?** Corvid feeds a stream of customer emails to an agent. The agent
+stores what it learns about each customer in a temporal knowledge graph.
+The knowledge makes the agent better at the next email.
 
 The name comes from the crows. Corvids remember individual humans for
 years.
 
-Status: **design draft**. The design is under iteration. No code exists.
-
-## The mechanics in one paragraph
-
-The stream contains many customers, interleaved. Learning means the
-agent writes and revises facts in a graph. The agent does not train a
-model. The agent must keep customers apart, recall the correct facts at
-the correct time, and detect when a fact stops being true.
+Status: **design draft**. No code exists.
 
 ## Why this exists
 
 Long-term memory is the one agentic capability that the sibling projects
-(Squawkbox, Freightcase, the Aviary design) do not touch. The interesting
-questions are not about storage. They are about trust: when to recall a
-fact, when to fill a gap from memory, and when to detect that a
-remembered fact is stale. A knowledge graph that grows on screen is also
-demonstrable. Batch memory systems are not.
+(Squawkbox, Freightcase, the Aviary design) do not touch. The goal is to
+learn a memory tool, not to build one. The interesting questions are not
+about storage. They are about trust: when to recall a fact, when to fill
+a gap from memory, and when to detect that a remembered fact is stale.
 
-## Design rule zero: no hand-labeling
+## The design
 
-The generator creates the ground truth first, as structured data, from
-seeded templates. The renderer creates prose from the ground truth
-afterward. The answer key exists before any email exists. No person
-labels anything.
+Small on purpose. Each piece earns its place only when it changes what
+the memory must do. If the project is fun, it grows toward the ambitions
+at the end of this document. It does not start there.
 
-The direction is one-way: structure in, prose out. An LLM renders facts
-into emails. The LLM never authors facts. The reverse direction (prose to
-labels) is hand-verification with extra steps. Corvid never uses it to
-make ground truth.
+### The stack
 
-## The system as a whole
+- **graphiti-core** as a Python dependency, in-process. Graphiti is the
+  open-source temporal knowledge graph engine from Zep: LLM-driven
+  entity extraction, typed edges with validity intervals, and
+  supersession on contradiction.
+- **Neo4j** as the one container in a docker compose file: Bolt port
+  7687, browser port 7474, a data volume. The Neo4j browser is the
+  graph viewer; Corvid builds no UI.
+- Graphiti needs an LLM and an embedder for extraction. Ollama works
+  through the OpenAI-compatible endpoint. The model is a run parameter.
 
-The system has two halves. The **harness** generates and grades, offline.
-The **agent** is the system under study.
+### The data
 
-### The harness
+A minimal generator, not hand-written emails and not the full harness:
 
-```
-personas.yaml ──> world generator ──> ground-truth world
- (templates)        (seeded)          (facts + timed changes)
-                                            │
-                                            v
-                                     episode renderer (LLM)
-                                            │
-                                            v
-                                  episodes.jsonl (emails, in order)
-```
+- **Two personas**, defined in one small YAML file. Each persona has a
+  handful of flat facts: company, contact, origin, destination, mode,
+  commodity. No pools, no weights, no style engine beyond a language
+  and a one-line tone hint.
+- **Omission is one rule.** Persona A states everything. Persona B
+  omits its origin in most emails (a seeded coin flip per email).
+- **One scripted change.** Persona B's origin changes at a fixed email
+  index, and that email states the reason ("we moved our operation to
+  Cartagena"). This is the supersession test.
+- **A one-prompt renderer.** For each email: facts in, one LLM call,
+  email out. The cache is "skip if the output file exists". No
+  validation pass; eyeball the emails once.
+- **Seeded throughout.** The same seed produces the same facts, the
+  same omissions, and the same change index. About 15 emails per
+  persona, interleaved by date.
 
-- **Personas** (about 15). Each persona is a customer with facts and
-  habits: a default origin, a weight-unit habit ("tons" means metric), a
-  contact person, a language, a verbosity level, a typo rate.
-- **Omission habits** drive the questions curve. Each fact carries a
-  per-persona probability that an email leaves it out (a seeded draw per
-  episode). An omitted fact is what the agent must fill from memory or
-  ask about. Without omissions, every email states everything and memory
-  is never exercised.
-- **Timed changes** are part of the persona: "port changes to COCTG at
-  episode 30", "contact leaves at episode 45". These changes are the
-  memory-hygiene tests. Each change costs one line of YAML.
-- **The renderer** turns the facts of one episode into one plausible
-  email. Style parameters differ per persona. Rendering runs offline, is
-  seeded where possible, and is cached. The cost is small: 15 personas x
-  50 episodes is about 750 short generations. A local Ollama instance
-  completes this overnight.
-- **No human is in the loop.** The ground truth is the oracle. When the
-  agent asks a question, the harness answers from the world. A full run
-  executes unattended. Runs are replayable and comparable across memory
-  designs.
+The generator writes two files: the emails (what the agent sees) and
+the facts per email (what the author knows). The second file is the
+answer sheet for the milestones below; nothing is labeled by hand.
 
-### The agent: the loop for one episode
+### The loop
+
+One email at a time, in order:
 
 ```
-INPUT:  episode #23: email from ACME
-
-  1. RECALL   query the graph: what do we know about ACME?
-  2. EXTRACT  parse the email into the task schema
-              (Freightcase-style quote request fields)
+  1. RECALL   query the graph: what do we know about this
+              customer?
+  2. EXTRACT  parse the email into quote request fields
+              (Freightcase-style)
   3. FILL     fill gaps in the extraction from memory;
               mark the provenance "learned", never silently
-  4. ACT      emit the structured quote request, plus
-              questions for each field that is not stated
-              and not known
-  5. LEARN    write new, confirmed, or superseding facts to
-              the graph with timestamps; a contradiction
-              supersedes the old edge and flags the change;
-              answered questions are ingested too, tagged
-              by source
+  4. ASK      list the fields that are not stated and not
+              known; the author answers, and the answer is
+              ingested too
+  5. LEARN    give Graphiti the raw email as an episode
 ```
 
-- **Input**: an ordered stream of rendered emails, one at a time. The
-  agent cannot look ahead.
-- **Actions per episode**: recall, extract, fill, act, learn.
-- **Outputs**, three kinds:
-  1. Per episode: the filled request and the questions asked.
-  2. Cumulative: the knowledge graph (nodes, edges, timestamps,
-     provenance).
-  3. Meta: metrics over the run.
+### Decisions that hold at any scale
 
-## The memory
+- **Raw episodes in, constrained by a declared ontology.** The LEARN
+  step gives Graphiti the raw email. Corvid declares its ontology as
+  custom entity and edge types (Pydantic models: Customer, Contact,
+  Location; SHIPS_FROM, PREFERS_UNIT, CONTACT_IS). A pre-pass that
+  feeds Graphiti pre-structured facts would reduce the tool to a
+  database and defeat the goal of learning it.
+- **Task extraction never feeds memory.** The quote fields are per
+  episode and disposable. Graphiti reads the source email itself.
+- **Answered questions become memory, tagged by source.** A direct
+  answer to a direct question is the strongest fact. Edges carry a
+  source tag: `email` or `answered_question`.
+- **A fill from memory is a proposal with provenance.** What the email
+  stated and what memory supplied are never blended silently. This is
+  the Freightcase rule.
 
-The memory is a temporal knowledge graph:
+### Milestones
 
-- **Nodes**: customers, contacts, locations, commodities, preferences.
-- **Edges**: typed relations (SHIPS_FROM, PREFERS_UNIT, CONTACT_IS).
-  Each edge carries a validity interval and a provenance (the episode
-  that taught it).
-- **Supersession, not deletion.** When a new fact contradicts an old
-  fact, the old edge closes its validity interval and the new edge opens
-  one. History stays queryable: "what did we believe in episode 25?"
-- A fill from memory is a proposal with provenance. This is the
-  Freightcase rule: what the email stated and what memory supplied are
-  never blended silently.
+1. **Generate.** The two-persona YAML, the seeded generator, the
+   one-prompt renderer.
+   Done when: the same seed produces the same ~30 emails, the emails
+   read plausibly, and persona B's origin is absent where the coin flip
+   said so.
+2. **Ingest and browse.** Docker compose up, graphiti-core installed,
+   the emails ingested, one graph in the Neo4j browser.
+   Done when: the customers, locations, and relations are visible as a
+   graph, and the change email closed the old origin edge and opened a
+   new one.
+3. **The loop.** The five steps above as a small script over the same
+   emails.
+   Done when: an email that omits the origin gets a fill from memory
+   with `learned` provenance, and the questions get fewer as the
+   sequence progresses.
+4. **Stale-memory check.** Emails after the change email.
+   Done when: a fill after the change uses the new origin, not the old
+   one.
 
-**Decision: Graphiti.** The goal of this project is to learn a memory
-tool, not to build one. Graphiti is the open-source temporal graph
-memory engine (from Zep). It supplies the machinery the design needs:
-entity extraction, typed edges, validity intervals, and supersession on
-contradiction. The harness grades any memory implementation, so a
-hand-rolled comparison stays possible later. It is not a goal.
+That is the project. Everything below is what it can become.
 
-**Decision: answered questions become memory, tagged by source.** When
-the agent asks a question and the harness answers it (as the customer,
-from the ground truth), the answer is ingested as an episode too. The
-agent learns from the conversation, not only from the inbound email. A
-direct answer to a direct question is the strongest fact: it deserves
-more confidence than a passively stated one, not less.
+## Future ambitions
 
-Every edge carries a source tag: `email` or `answered_question`. The tag
-keeps the grading clean: the questions curve falls partly because asking
-itself teaches, and the graph diff can report the two sources
-separately. The tag also exposes the interesting trade-off: a question
-has a cost (it bothers the customer) and a payoff (a permanent
-high-confidence fact).
+These pieces exist as designs, not commitments. Each one enters only
+when the small version makes it feel worth it.
 
-**Decision: raw episodes in, constrained by a declared ontology.** The
-LEARN step gives Graphiti the raw email as an episode. Corvid declares
-its ontology as custom entity and edge types (Pydantic models: Customer,
-Contact, Location; SHIPS_FROM, PREFERS_UNIT, CONTACT_IS) and passes it
-at ingestion, so extraction is steered toward the schema instead of
-free-form. A pre-pass that feeds Graphiti pre-structured facts would
-reduce the tool to a database and defeat the goal of learning it.
-
-Two jobs stay separate: task extraction (quote fields, per episode,
-disposable) never feeds memory. Graphiti reads the source email itself.
-
-One fallback lever, kept cheap: Graphiti also accepts structured JSON
-episodes. If raw-email extraction is too noisy on local models, a run
-parameter (`--episode-body raw|extracted`) feeds the agent's validated
-task extraction as the episode instead. The two modes are then a
-measurable comparison on the same case stream, not a redesign.
-
-**Architecture: graphiti-core in-process, Neo4j in docker compose.**
-Graphiti is a Python library, not a required service. Corvid imports
-graphiti-core directly and connects to a Neo4j container over Bolt. The
-compose file holds one service: neo4j with the Bolt port (7687), the
-browser port (7474), and a data volume. A Graphiti server container
-exists but adds a middleware layer this project does not need; current
-practice is to use the library directly.
-
-Graphiti needs an LLM and an embedder for its extraction. The default is
-OpenAI. Ollama works through the OpenAI-compatible endpoint. Extraction
-quality with small local models is a known weak spot. Stage 3 measures
-this instead of assuming it; the model behind Graphiti is a run
-parameter, like the agent model in Squawkbox.
-
-## Grading
-
-Grading is free. The harness supplies it:
-
-- **Graph diff**: compare the final graph with the ground-truth world.
-  Count facts learned, missed, and invented.
-- **Temporal correctness**: compare the fills of each episode with the
-  facts that were true at that time. A fill with the old port after the
-  scripted change is a stale-memory failure. The harness detects it
-  automatically.
-- **The headline chart**: questions asked per episode. The curve goes
-  down when memory works. Memory that works makes the agent stop asking.
-
-## What is demonstrable
-
-- A 3D force-directed graph that grows on screen during a replay. Nodes
-  and edges appear when the agent learns. An edge flips when a customer
-  changes. This picture is the reason the project exists.
-- The questions-per-episode curve.
-- A replay of one episode: the email on one side; the recall, the fills,
-  and the questions on the other side.
+- **Richer personas and world generation.** Omission probabilities per
+  fact, scripted changes as a list, style parameters, many personas,
+  lane portfolios (a stable export base plus a weighted destination
+  pool) so memory must learn the difference between a fact and a
+  tendency. See `docs/persona-example.yaml` for the grown shape.
+- **A better renderer.** A content-keyed cache (facts + prompt + model
+  hashed) so re-renders after a prompt change stay cheap, and a
+  validation pass that checks each email against its source facts.
+- **An auto-answer oracle.** The harness answers the agent's questions
+  from the ground truth, so a full run executes unattended and runs are
+  comparable across memory designs.
+- **Free grading.** A graph diff against the ground-truth world (facts
+  learned, missed, invented). Temporal correctness: each fill checked
+  against what was true at that time; a fill with the old value after a
+  scripted change is a stale-memory failure. The headline chart:
+  questions asked per episode, falling as memory works.
+- **Richer personas.** Lane portfolios (a stable export base plus a
+  weighted destination pool) instead of single defaults, so memory
+  must learn the difference between a fact and a tendency.
+- **A comparison lever.** `--episode-body raw|extracted`: feed Graphiti
+  the raw email or the agent's validated extraction, and measure the
+  difference on the same stream.
+- **The picture.** A 3D force graph of the memory, animated over an
+  episode replay, next to the falling questions curve.
 
 ## Anti-goals
 
-- No hand-labeled data, ever.
+- No hand-labeled data and no hand-written emails. The generator makes
+  both the emails and the answer sheet.
 - No model training and no fine-tuning. Learning means graph writes.
 - No production TMS features. No real customer data.
-- One flow (quote requests) done well before a second flow starts. This
-  is the Freightcase scoping rule.
-- The renderer is a renderer. A renderer that invents facts is a bug,
-  not emergent realism.
+- No harness feature before the memory needs it.
+- One flow (quote requests). This is the Freightcase scoping rule.
 
 ## Known risks
 
-- **Renderer fact-leakage.** The LLM can drop or change a fact when it
-  writes the email ("12 pallets" becomes "a dozen"). Mitigations: a
-  cheap validation pass that checks the email against its source facts,
-  or acceptance of the leakage with grading against what the email
-  communicated. Real customers change facts too.
-- **Graphiti extraction quality on local models.** Graphiti runs its own
-  LLM for entity and fact extraction. Small local models are a known
-  weak spot for this step. Mitigation: the Graphiti model is a run
-  parameter, so runs can compare a local model against an API model. The
-  harness grades the result either way.
-- **Same-voice syndrome.** Each email sounds like the same LLM. Persona
-  style parameters and varied models or temperatures reduce this. This
-  risk applies to realism-feel, not to the measurements.
-
-## Stages
-
-### Stage 1: the world and the stream
-
-- Persona templates and a seeded world generator with timed changes.
-- An LLM renderer with a cache and a validation pass.
-- Output: an episodes.jsonl that reads plausibly and diffs cleanly
-  against its ground truth.
-
-Done when: the same seed produces the same world and the same cached
-episodes, and a spot-check of 20 emails contains their source facts.
-
-### Stage 2: the agent, without memory
-
-- The episode loop without RECALL, FILL, and LEARN: extract, act, ask.
-- The auto-answer machinery: the harness answers questions from the
-  world.
-- Baseline metrics: the questions-per-episode curve stays flat, by
-  construction.
-
-Done when: a full 50-episode run executes unattended and produces the
-baseline curve.
-
-### Stage 3: memory
-
-- Graphiti as the memory engine: raw-email episode ingestion with the
-  declared ontology, recall and fill with provenance, and supersession
-  on contradiction.
-- Compare the `--episode-body raw|extracted` modes if raw extraction is
-  noisy.
-- The run now produces a falling questions curve and a growing graph.
-
-Done when: the curve falls visibly, the graph diff scores well against
-the ground truth, and the agent catches at least one scripted change
-(the port change) with a supersession instead of stale fills.
-
-### Stage 4: the picture
-
-- A 3D force graph of the memory, animated over the episode replay.
-- An episode inspector: the email, the recall, the fills, and the
-  questions, side by side.
-
-Done when: a run is fun to watch. This is the same finish line as
-Aviary.
-
-## Open questions
-
-None at design level. One implementation note for stage 1: check how
-much persona vocabulary ports from the lane templates of Squawkbox
-(locations, parties, references).
+- **Graphiti extraction quality on local models.** Graphiti runs its
+  own LLM for entity and fact extraction. Small local models are a
+  known weak spot for this step. The Graphiti model is a run parameter,
+  so an API model is one flag away.
 
 ## Lineage
 
 - **Squawkbox**: one state, one event, one decision, one diff. Static.
 - **Freightcase**: one email, one case, one human gate. Reactive.
+- **Aviary**: many shipments, a running clock, no agent. Alive.
 - **Corvid**: many emails, many customers, a memory that grows and
   revises. Longitudinal.
