@@ -1,0 +1,44 @@
+# The minimal persona file. One file holds both personas.
+# The generator reads this file. The agent never sees it.
+# Everything here is ground truth.
+
+personas:
+
+  # Persona A: states everything. The control.
+  - id: nordfrost
+    company: Nordfrost Seafood AB
+    contact: Erik Lindqvist
+    origin: { name: "Gothenburg, Sweden", locode: SEGOT }
+    destination: { name: "Bogotá, Colombia", locode: COBOG }
+    mode: ocean_reefer
+    commodity: frozen seafood
+    omit_origin: false
+    style:
+      language: en
+      tone: terse, all business, no pleasantries
+
+  # Persona B: omits the origin in most emails, and moves once.
+  - id: acme-alimentos
+    company: ACME Alimentos SAS
+    contact: Marta Restrepo
+    origin: { name: "Bogotá, Colombia", locode: COBOG }
+    destination: { name: "Rotterdam, Netherlands", locode: NLRTM }
+    mode: ocean_fcl
+    commodity: packaged non-perishable foods
+    omit_origin: true          # seeded coin flip per email
+    change:                    # the supersession test
+      at_email: 10
+      origin: { name: "Cartagena, Colombia", locode: COCTG }
+      reason_in_email: "we moved our export operation to the coast"
+    style:
+      language: es
+      tone: warm, informal, opens with a pleasantry
+
+# Generation settings.
+generation:
+  seed: 42
+  emails_per_persona: 15
+  # Per-email variables, drawn seeded. Never memory material.
+  variables:
+    pieces: { min: 8, max: 26 }
+    weight_kg: { min: 4000, max: 12000 }
