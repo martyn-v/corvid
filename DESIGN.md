@@ -60,6 +60,11 @@ personas.yaml ──> world generator ──> ground-truth world
 - **Personas** (about 15). Each persona is a customer with facts and
   habits: a default origin, a weight-unit habit ("tons" means metric), a
   contact person, a language, a verbosity level, a typo rate.
+- **Omission habits** drive the questions curve. Each fact carries a
+  per-persona probability that an email leaves it out (a seeded draw per
+  episode). An omitted fact is what the agent must fill from memory or
+  ask about. Without omissions, every email states everything and memory
+  is never exercised.
 - **Timed changes** are part of the persona: "port changes to COCTG at
   episode 30", "contact leaves at episode 45". These changes are the
   memory-hygiene tests. Each change costs one line of YAML.
