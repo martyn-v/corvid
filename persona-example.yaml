@@ -1,0 +1,75 @@
+# One persona. The world generator reads this file.
+# Everything here is ground truth. The renderer turns it into emails.
+# The agent never sees this file.
+
+persona:
+  id: acme-alimentos
+  company: ACME Alimentos SAS
+
+  # ---- durable facts: what the agent should eventually learn ----
+  # Each fact has a key the grader can diff against the final graph.
+  facts:
+    default_origin:
+      value: { name: "Bogotá, Colombia", locode: COBOG }
+    default_destination:
+      value: { name: "Rotterdam, Netherlands", locode: NLRTM }
+    default_mode:
+      value: ocean_fcl
+    default_incoterm:
+      value: FOB
+    contact:
+      value: { name: "Marta Restrepo", role: logistics coordinator }
+    commodity:
+      value: "packaged non-perishable foods"
+    weight_unit_habit:
+      # Marta writes "tons" and always means metric tonnes.
+      stated_as: "tons"
+      means: metric_tonne
+
+  # ---- timed changes: the memory-hygiene tests ----
+  # Each change supersedes a fact at an episode index.
+  # The grader marks any fill with the old value after this
+  # point as a stale-memory failure.
+  changes:
+    - at_episode: 30
+      fact: default_origin
+      new_value: { name: "Cartagena, Colombia", locode: COCTG }
+      reason_in_email: "we moved our export operation to the coast"
+    - at_episode: 45
+      fact: contact
+      new_value: { name: "Julián Ortiz", role: logistics coordinator }
+      reason_in_email: "Marta has left the company"
+
+  # ---- omission habits: what drives the questions curve ----
+  # Probability that a fact is left out of an email. Seeded draw
+  # per episode. An omitted fact is what the agent must fill from
+  # memory or ask about.
+  omissions:
+    default_origin: 0.6      # rarely states it; "the usual" energy
+    default_incoterm: 0.8    # almost never mentions it
+    contact: 0.0             # signs every email
+    cargo_dimensions: 0.5
+
+  # ---- per-episode variables: facts the renderer must include ----
+  # These change every request and are never memory material.
+  # Ranges feed the seeded generator.
+  variables:
+    pieces: { min: 8, max: 26 }
+    weight_kg: { min: 4000, max: 12000 }
+    ready_date_offset_days: { min: 5, max: 21 }
+
+  # ---- style: renderer parameters only, not facts ----
+  style:
+    language: es
+    register: warm, informal, first-name basis
+    verbosity: medium
+    typo_rate: low
+    quirks:
+      - opens with a personal pleasantry
+      - writes weights as "X tons" (see weight_unit_habit)
+      - never uses the word "cotización"; writes "oferta"
+
+  # ---- cadence: how often this persona appears in the stream ----
+  cadence:
+    episodes: 50
+    gap_days: { min: 3, max: 10 }
