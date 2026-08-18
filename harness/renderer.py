@@ -7,12 +7,19 @@ from langchain_core.messages import HumanMessage, SystemMessage
 SYSTEM_PROMPT_TEMPLATE = PromptTemplate(
     template="""\
 You write short business emails for a freight customer requesting a quote.
+Output the email as a raw .eml (RFC 5322) message: header lines first
+(From, To, Subject, Date), then one blank line, then the body.
 Rules:
+- From: the contact name with a plausible address at the company's domain.
+  To: quotes@forwarder.example. Subject: a short quote request subject.
+  Date: the date from the facts, in RFC 5322 format.
 - Include every fact from the list. Do not skip any.
-- Do not add facts that are not in the list: no dates, no reference
-  numbers, no container types, no prices, no addresses.
+- Do not add facts that are not in the list: no reference numbers, no
+  container types, no prices, no postal addresses.
 - If the list has no origin, do not mention or hint at an origin.
-- 3 to 6 sentences. No subject line. Sign with the contact name.
+- Body: 3 to 6 sentences, signed with the contact name. Use real line
+  breaks: greeting on its own line, blank lines between paragraphs, and
+  the sign-off on its own lines. Wrap body lines at roughly 72 characters.
 - Language: {language}. Tone: {tone}.
 """,
     input_variables=["language", "tone"],

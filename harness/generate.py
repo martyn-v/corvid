@@ -77,7 +77,7 @@ def render(model: BaseChatModel, facts: list[Fact], personas: list[Persona]) -> 
     with open("facts.jsonl", "w") as f:
         for fact in facts:
             f.write(fact.model_dump_json() + "\n")
-            path = EMAILS_DIR / f"{fact.n:03d}-{fact.persona}-{fact.index:02d}.txt"
+            path = EMAILS_DIR / f"{fact.n:03d}-{fact.persona}-{fact.index:02d}.eml"
             if path.exists():
                 continue
             email = render_email(model, fact, persona_by_id[fact.persona])

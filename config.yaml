@@ -30,7 +30,7 @@ personas:
       origin: { name: "Cartagena, Colombia", locode: COCTG }
       reason_in_email: "we moved our export operation to the coast"
     style:
-      language: es
+      language: en
       tone: warm, informal, opens with a pleasantry
 
 # Generation settings.
