@@ -7,8 +7,8 @@ under group_id "benchmark" and wiped between calls, so both runs do identical
 work against an empty group and your real graph is untouched.
 
 Usage:
-    uv run -m harness.benchmark                  # benchmark DEFAULT_MODELS
-    uv run -m harness.benchmark gemma4:31b ...   # benchmark specific models
+    uv run -m scripts.benchmark_models                  # benchmark DEFAULT_MODELS
+    uv run -m scripts.benchmark_models gemma4:31b ...   # benchmark specific models
 """
 
 import asyncio
@@ -17,24 +17,20 @@ import subprocess
 import sys
 import time
 import urllib.request
+from dataclasses import replace
 from datetime import datetime
-from email import message_from_string, policy
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from graphiti_core import Graphiti
-from graphiti_core.llm_client.config import LLMConfig
-from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
-from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
-from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from graphiti_core.nodes import EpisodeType
 from neo4j import GraphDatabase
 
-from harness.ingest import make_nothink_client
+from corvid.config import graphiti_config
+from corvid.memory.graphiti import make_graphiti
+from corvid.memory.learn import parse_email
 
-OLLAMA = "http://localhost:11434"
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "corvidpass")
+OLLAMA = graphiti_config.llm_base_url.removesuffix("/v1")
+NEO4J_AUTH = (graphiti_config.neo4j_user, graphiti_config.neo4j_password)
 EMAILS_DIR = Path("harness/emails")
 GROUP_ID = "benchmark"
 
@@ -47,31 +43,9 @@ DEFAULT_MODELS = [
 ]
 
 
-def make_graphiti(model: str) -> Graphiti:
-    llm_config = LLMConfig(
-        api_key="ollama",
-        model=model,
-        small_model=model,
-        temperature=0,
-        base_url=f"{OLLAMA}/v1",
-    )
-    return Graphiti(
-        NEO4J_URI,
-        *NEO4J_AUTH,
-        llm_client=OpenAIGenericClient(
-            config=llm_config,
-            client=make_nothink_client("ollama", f"{OLLAMA}/v1"),
-        ),
-        embedder=OpenAIEmbedder(
-            config=OpenAIEmbedderConfig(
-                api_key="ollama",
-                embedding_model="nomic-embed-text-v2-moe:latest",
-                embedding_dim=768,
-                base_url=f"{OLLAMA}/v1",
-            )
-        ),
-        cross_encoder=OpenAIRerankerClient(config=llm_config),
-    )
+def make_benchmark_graphiti(model: str) -> Graphiti:
+    """Central config, with the LLM swapped for the model under test."""
+    return make_graphiti(replace(graphiti_config, llm_model=model, llm_small_model=model))
 
 
 def unload_all_models() -> None:
@@ -84,7 +58,7 @@ def unload_all_models() -> None:
 def wipe_benchmark_group() -> int:
     """Delete all benchmark nodes; returns how many nodes existed."""
     driver = GraphDatabase.driver(
-        NEO4J_URI, auth=NEO4J_AUTH, warn_notification_severity=None
+        graphiti_config.neo4j_uri, auth=NEO4J_AUTH, warn_notification_severity=None
     )
     with driver.session() as session:
         count = session.run(
@@ -98,12 +72,7 @@ def load_email() -> tuple[str, datetime]:
     paths = sorted(EMAILS_DIR.glob("*.eml"))
     if not paths:
         sys.exit(f"no .eml files found in {EMAILS_DIR}")
-    message = message_from_string(paths[0].read_text(), policy=policy.default)
-    content = (
-        f"From: {message['From']}\nSubject: {message['Subject']}\n\n"
-        f"{message.get_content().strip()}"
-    )
-    return content, parsedate_to_datetime(message["Date"])
+    return parse_email(paths[0].read_text())
 
 
 async def timed_add_episode(graphiti: Graphiti, content: str, date) -> dict:
@@ -126,7 +95,7 @@ async def timed_add_episode(graphiti: Graphiti, content: str, date) -> dict:
 
 
 async def bench_model(model: str, content: str, date) -> tuple[dict, dict]:
-    graphiti = make_graphiti(model)
+    graphiti = make_benchmark_graphiti(model)
     try:
         unload_all_models()
         cold = await timed_add_episode(graphiti, content, date)
@@ -142,7 +111,7 @@ async def main(models: list[str]) -> None:
     with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=30) as resp:
         installed = {m["name"] for m in json.load(resp)["models"]}
 
-    setup = make_graphiti(models[0])
+    setup = make_benchmark_graphiti(models[0])
     await setup.build_indices_and_constraints()
     await setup.close()
     wipe_benchmark_group()

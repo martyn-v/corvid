@@ -71,3 +71,8 @@ class Fact(BaseModel):
     weight_kg: int
     origin_omitted: bool
     change_reason: str | None = None
+
+    @property
+    def key(self) -> str:
+        """Names this fact's email file; the world/agent filename contract."""
+        return f"{self.n:03d}-{self.persona}-{self.index:02d}"
