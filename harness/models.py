@@ -72,8 +72,8 @@ class ConfigFile(BaseModel):
     generation: GenerationSettings
 
 
-class FactDraft(BaseModel):
-    """A fact before global numbering; n is assigned after the date sort."""
+class CaseDraft(BaseModel):
+    """A case before global numbering; n is assigned after the date sort."""
 
     index: int
     persona: str
@@ -88,10 +88,10 @@ class FactDraft(BaseModel):
     change_reason: str | None = None
 
 
-class Fact(FactDraft):
+class Case(CaseDraft):
     n: int
 
     @property
     def key(self) -> str:
-        """Names this fact's email file; the world/agent filename contract."""
+        """Names this case's email file; the world/agent filename contract."""
         return f"{self.n:03d}-{self.persona}-{self.index:02d}"

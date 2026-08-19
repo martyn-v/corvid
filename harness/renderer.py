@@ -2,7 +2,7 @@ import datetime
 from email.utils import format_datetime
 
 from corvid.logging import make_logger
-from harness.models import Fact, Persona
+from harness.models import Case, Persona
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -56,42 +56,42 @@ USER_PROMPT_TEMPLATE = PromptTemplate(
 )
 
 
-def summarize_facts(fact: Fact, persona: Persona) -> str:
+def summarize_facts(case: Case, persona: Persona) -> str:
     facts = []
     facts.append(f"- Sender Company: {persona.company}")
     facts.append(f"- Sender: {persona.contact.name}")
     facts.append(f"- Sender email: {persona.contact.email}")
-    if not fact.origin_omitted:
-        facts.append(f"- Origin: {fact.origin}")
-    facts.append(f"- Destination: {fact.destination}")
-    facts.append(f"- Mode: {fact.mode}")
-    facts.append(f"- Commodity: {fact.commodity}")
-    facts.append(f"- Pieces: {fact.pieces}")
-    facts.append(f"- Weight (kg): {fact.weight_kg}")
-    if fact.change_reason is not None:
-        facts.append(f"- Mention: {fact.change_reason}")
+    if not case.origin_omitted:
+        facts.append(f"- Origin: {case.origin}")
+    facts.append(f"- Destination: {case.destination}")
+    facts.append(f"- Mode: {case.mode}")
+    facts.append(f"- Commodity: {case.commodity}")
+    facts.append(f"- Pieces: {case.pieces}")
+    facts.append(f"- Weight (kg): {case.weight_kg}")
+    if case.change_reason is not None:
+        facts.append(f"- Mention: {case.change_reason}")
     return "\n".join(facts)
 
 
-def render_email(model: BaseChatModel, fact: Fact, persona: Persona) -> str:
+def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
     logger.debug(
         "rendering email",
-        key=fact.key,
+        key=case.key,
         persona=persona.id,
-        first_email=fact.index == 1,
-        origin_omitted=fact.origin_omitted,
-        change_email=fact.change_reason is not None,
+        first_email=case.index == 1,
+        origin_omitted=case.origin_omitted,
+        change_email=case.change_reason is not None,
     )
     messages = [
         SystemMessage(
             content=SYSTEM_PROMPT_TEMPLATE.format(
                 language=persona.style.language,
                 tone=persona.style.tone,
-                intro_rule=FIRST_EMAIL_INTRO_RULE if fact.index == 1 else "",
+                intro_rule=FIRST_EMAIL_INTRO_RULE if case.index == 1 else "",
             )
         ),
         HumanMessage(
-            content=USER_PROMPT_TEMPLATE.format(facts=summarize_facts(fact, persona))
+            content=USER_PROMPT_TEMPLATE.format(facts=summarize_facts(case, persona))
         ),
     ]
 
@@ -102,7 +102,7 @@ def render_email(model: BaseChatModel, fact: Fact, persona: Persona) -> str:
     )
 
     sent_at = datetime.datetime.combine(
-        fact.date, datetime.time(9, 0), tzinfo=datetime.timezone.utc
+        case.date, datetime.time(9, 0), tzinfo=datetime.timezone.utc
     )
     headers = "\n".join(
         [

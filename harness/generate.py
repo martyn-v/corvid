@@ -3,23 +3,23 @@ import time
 from random import Random
 from corvid.llm import create_model
 from corvid.logging import make_logger
-from harness.models import Fact, FactDraft, Persona, GenerationSettings, ConfigFile
+from harness.models import Case, CaseDraft, Persona, GenerationSettings, ConfigFile
 import yaml
 from langchain_core.language_models import BaseChatModel
 
-from harness.paths import EMAILS_DIR, FACTS_PATH, WORLD_PATH
+from harness.paths import EMAILS_DIR, CASES_PATH, WORLD_PATH
 from harness.renderer import render_email
 
 logger = make_logger("generate")
 
 
-def _make_row(
+def _make_case(
     p: Persona,
     i: int,
     date: datetime.date,
     prng: Random,
     settings: GenerationSettings,
-) -> FactDraft:
+) -> CaseDraft:
     """Draw one email's ground-truth facts for persona `p`.
 
     Applies the scripted origin change once `i` reaches it, and the seeded
@@ -41,7 +41,7 @@ def _make_row(
     if is_change or i == 1:
         origin_omitted = False  # first email and change email must state the origin
 
-    return FactDraft(
+    return CaseDraft(
         index=i,
         persona=p.id,
         date=date,
@@ -56,78 +56,78 @@ def _make_row(
     )
 
 
-def build_facts(personas: list[Persona], settings: GenerationSettings) -> list[Fact]:
-    """Build the full answer sheet: every persona's facts, interleaved by date.
+def build_cases(personas: list[Persona], settings: GenerationSettings) -> list[Case]:
+    """Build the full answer sheet: every persona's cases, interleaved by date.
 
     One PRNG per persona (seeded from seed + persona id) keeps each
-    persona's draws stable when others change. Facts are numbered (`n`)
+    persona's draws stable when others change. Cases are numbered (`n`)
     only after the global date sort — the number is the send order the
     agent will see.
     """
     timeline = settings.timeline
-    drafts: list[FactDraft] = []
+    drafts: list[CaseDraft] = []
     for p in personas:
         prng = Random(f"{settings.seed}-{p.id}")
         date = timeline.start_date + datetime.timedelta(
             days=prng.randint(timeline.start_offset_days.min, timeline.start_offset_days.max)
         )
         for i in range(1, settings.emails_per_persona + 1):
-            drafts.append(_make_row(p, i, date, prng, settings))
+            drafts.append(_make_case(p, i, date, prng, settings))
             date += datetime.timedelta(
                 days=prng.randint(timeline.gap_days.min, timeline.gap_days.max)
             )
 
     drafts.sort(key=lambda d: (d.date, d.persona))
-    facts = [Fact(n=n, **dict(draft)) for n, draft in enumerate(drafts, 1)]
+    cases = [Case(n=n, **dict(draft)) for n, draft in enumerate(drafts, 1)]
     logger.info(
-        "facts built",
-        facts=len(facts),
+        "cases built",
+        cases=len(cases),
         personas=len(personas),
         seed=settings.seed,
-        first_date=facts[0].date.isoformat(),
-        last_date=facts[-1].date.isoformat(),
+        first_date=cases[0].date.isoformat(),
+        last_date=cases[-1].date.isoformat(),
     )
-    return facts
+    return cases
 
 
-def render(model: BaseChatModel, facts: list[Fact], personas: list[Persona]) -> None:
-    """Write the answer sheet (facts.jsonl) and render each fact to an email.
+def render(model: BaseChatModel, cases: list[Case], personas: list[Persona]) -> None:
+    """Write the answer sheet (cases.jsonl) and render each case to an email.
 
     The cache rule is "skip if the .eml exists": delete a file to re-render
-    it. facts.jsonl is always rewritten in full.
+    it. cases.jsonl is always rewritten in full.
     """
     persona_by_id = {p.id: p for p in personas}
     EMAILS_DIR.mkdir(parents=True, exist_ok=True)
     rendered = cached = 0
-    with open(FACTS_PATH, "w") as f:
-        for fact in facts:
-            f.write(fact.model_dump_json() + "\n")
-            path = EMAILS_DIR / f"{fact.key}.eml"
+    with open(CASES_PATH, "w") as f:
+        for case in cases:
+            f.write(case.model_dump_json() + "\n")
+            path = EMAILS_DIR / f"{case.key}.eml"
             if path.exists():
-                logger.debug("email cached", key=fact.key)
+                logger.debug("email cached", key=case.key)
                 cached += 1
                 continue
             start = time.perf_counter()
-            email = render_email(model, fact, persona_by_id[fact.persona])
+            email = render_email(model, case, persona_by_id[case.persona])
             with open(path, "w") as f_email:
                 f_email.write(email)
             rendered += 1
             logger.info(
                 "email rendered",
-                key=fact.key,
+                key=case.key,
                 seconds=round(time.perf_counter() - start, 1),
             )
     logger.info(
         "render complete",
         rendered=rendered,
         cached=cached,
-        facts_path=str(FACTS_PATH),
+        cases_path=str(CASES_PATH),
         emails_dir=str(EMAILS_DIR),
     )
 
 
 def main():
-    """Load the world, build the facts, render the emails."""
+    """Load the world, build the cases, render the emails."""
     with open(WORLD_PATH, "r") as f:
         data = yaml.safe_load(f)
     config = ConfigFile.model_validate(data)
@@ -138,12 +138,12 @@ def main():
         renderer_model=config.generation.renderer.model,
     )
 
-    facts = build_facts(config.personas, config.generation)
+    cases = build_cases(config.personas, config.generation)
 
     renderer = config.generation.renderer
     model = create_model(model=renderer.model, temperature=renderer.temperature)
 
-    render(model, facts, config.personas)
+    render(model, cases, config.personas)
 
 
 if __name__ == "__main__":
