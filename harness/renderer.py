@@ -1,18 +1,25 @@
+import datetime
+from email.utils import format_datetime
+
 from harness.models import Fact, Persona
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage
 
 
+TO_ADDRESS = "quotes@forwarder.example"
+
 SYSTEM_PROMPT_TEMPLATE = PromptTemplate(
     template="""\
 You write short business emails for a freight customer requesting a quote.
-Output the email as a raw .eml (RFC 5322) message: header lines first
-(From, To, Subject, Date), then one blank line, then the body.
+Output exactly one Subject header line, then one blank line, then the body:
+
+Subject: <a short quote request subject>
+
+<body>
+
+Do not output any other header lines.
 Rules:
-- From: the contact name with a plausible address at the company's domain.
-  To: quotes@forwarder.example. Subject: a short quote request subject.
-  Date: the date from the facts, in RFC 5322 format.
 - Include every fact from the list. Do not skip any.
 - Do not add facts that are not in the list: no reference numbers, no
   container types, no prices, no postal addresses.
@@ -36,9 +43,8 @@ USER_PROMPT_TEMPLATE = PromptTemplate(
 
 def summarize_facts(fact: Fact, persona: Persona) -> str:
     facts = []
-    facts.append(f"- Date: {fact.date}")
     facts.append(f"- Company: {persona.company}")
-    facts.append(f"- Sender: {persona.contact}")
+    facts.append(f"- Sender: {persona.contact.name}")
     if not fact.origin_omitted:
         facts.append(f"- Origin: {fact.origin}")
     facts.append(f"- Destination: {fact.destination}")
@@ -70,4 +76,15 @@ def render_email(model: BaseChatModel, fact: Fact, persona: Persona) -> str:
         response.content if isinstance(response.content, str) else str(response.content)
     )
 
-    return raw.strip()
+    sent_at = datetime.datetime.combine(
+        fact.date, datetime.time(9, 0), tzinfo=datetime.timezone.utc
+    )
+    headers = "\n".join(
+        [
+            f"From: {persona.contact.name} <{persona.contact.email}>",
+            f"To: {TO_ADDRESS}",
+            f"Date: {format_datetime(sent_at)}",
+        ]
+    )
+
+    return f"{headers}\n{raw.strip()}"

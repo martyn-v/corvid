@@ -7,6 +7,7 @@ import yaml
 from langchain_core.language_models import BaseChatModel
 
 from harness.renderer import render_email
+from harness.utils import build_fact_key
 
 START_DATE = datetime.date(2023, 1, 1)
 EMAILS_DIR = Path("harness/emails")
@@ -77,7 +78,7 @@ def render(model: BaseChatModel, facts: list[Fact], personas: list[Persona]) -> 
     with open("facts.jsonl", "w") as f:
         for fact in facts:
             f.write(fact.model_dump_json() + "\n")
-            path = EMAILS_DIR / f"{fact.n:03d}-{fact.persona}-{fact.index:02d}.eml"
+            path = EMAILS_DIR / f"{build_fact_key(fact)}.eml"
             if path.exists():
                 continue
             email = render_email(model, fact, persona_by_id[fact.persona])

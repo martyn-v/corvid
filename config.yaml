@@ -6,7 +6,9 @@ personas:
   # Persona A: states everything. The control.
   - id: nordfrost
     company: Nordfrost Seafood AB
-    contact: Erik Lindqvist
+    contact:
+      name: Erik Lindqvist
+      email: elindqvist@nordfrost.example.com
     origin: { name: "Gothenburg, Sweden", locode: SEGOT }
     destination: { name: "Bogotá, Colombia", locode: COBOG }
     mode: ocean_reefer
@@ -19,7 +21,9 @@ personas:
   # Persona B: omits the origin in most emails, and moves once.
   - id: acme-alimentos
     company: ACME Alimentos SAS
-    contact: Marta Restrepo
+    contact:
+      name: Marta Restrepo
+      email: marta.restrepo@acme-alimentos.example.com
     origin: { name: "Bogotá, Colombia", locode: COBOG }
     destination: { name: "Rotterdam, Netherlands", locode: NLRTM }
     mode: ocean_fcl

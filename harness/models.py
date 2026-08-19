@@ -3,6 +3,11 @@ from pydantic import BaseModel
 from typing import Literal
 
 
+class Contact(BaseModel):
+    name: str
+    email: str
+
+
 class Location(BaseModel):
     locode: str
     name: str
@@ -22,7 +27,7 @@ class PersonaChange(BaseModel):
 class Persona(BaseModel):
     id: str
     company: str
-    contact: str
+    contact: Contact
     origin: Location
     destination: Location
     mode: Literal["ocean_fcl", "ocean_reefer"]
