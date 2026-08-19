@@ -9,6 +9,7 @@ dependencies = [
     "click>=8.4.2",
     "graphiti-core>=0.29.3",
     "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.11",
     "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
     "structlog>=26.1.0",
@@ -20,3 +21,12 @@ corvid = "corvid:main"
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

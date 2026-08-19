@@ -109,6 +109,8 @@ def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
             f"From: {persona.contact.name} <{persona.contact.email}>",
             f"To: {TO_ADDRESS}",
             f"Date: {format_datetime(sent_at)}",
+            "MIME-Version: 1.0",
+            "Content-Type: text/plain; charset=utf-8",
         ]
     )
 
