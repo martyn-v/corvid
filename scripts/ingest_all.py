@@ -9,16 +9,13 @@ Usage:
 
 import asyncio
 import json
-from pathlib import Path
 
 from corvid.config import graphiti_config
 from corvid.logging import make_logger
 from corvid.memory.graphiti import make_graphiti
 from corvid.memory.learn import learn, parse_email
 from harness.models import Fact
-
-EMAILS_DIR = Path("harness/emails")
-FACTS_PATH = Path("facts.jsonl")
+from harness.paths import EMAILS_DIR, FACTS_PATH
 
 logger = make_logger("ingest")
 

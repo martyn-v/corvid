@@ -1,15 +1,12 @@
 import datetime
-from pathlib import Path
 from random import Random
 from corvid.llm import create_model
-from harness.models import Fact, FactDraft, Persona, GenerationVariables, ConfigFile
+from harness.models import Fact, FactDraft, Persona, GenerationSettings, ConfigFile
 import yaml
 from langchain_core.language_models import BaseChatModel
 
+from harness.paths import EMAILS_DIR, FACTS_PATH, WORLD_PATH
 from harness.renderer import render_email
-
-START_DATE = datetime.date(2023, 1, 1)
-EMAILS_DIR = Path("harness/emails")
 
 
 def _make_row(
@@ -17,7 +14,7 @@ def _make_row(
     i: int,
     date: datetime.date,
     prng: Random,
-    variables: GenerationVariables,
+    settings: GenerationSettings,
 ) -> FactDraft:
     origin = p.origin
     is_change = False
@@ -30,7 +27,7 @@ def _make_row(
             change_reason = p.change.reason_in_email
 
     coin = prng.random()  # always draw: keeps later draws stable across config changes
-    origin_omitted = p.omit_origin and coin < 0.7
+    origin_omitted = p.omit_origin and coin < settings.omission_rate
     if is_change or i == 1:
         origin_omitted = False  # first email and change email must state the origin
 
@@ -42,26 +39,26 @@ def _make_row(
         destination=p.destination,
         mode=p.mode,
         commodity=p.commodity,
-        pieces=prng.randint(variables.pieces.min, variables.pieces.max),
-        weight_kg=prng.randint(variables.weight_kg.min, variables.weight_kg.max),
+        pieces=prng.randint(settings.variables.pieces.min, settings.variables.pieces.max),
+        weight_kg=prng.randint(settings.variables.weight_kg.min, settings.variables.weight_kg.max),
         origin_omitted=origin_omitted,
         change_reason=change_reason,
     )
 
 
-def build_facts(
-    personas: list[Persona],
-    seed: int,
-    emails_per_persona: int,
-    vars: GenerationVariables,
-) -> list[Fact]:
+def build_facts(personas: list[Persona], settings: GenerationSettings) -> list[Fact]:
+    timeline = settings.timeline
     drafts: list[FactDraft] = []
     for p in personas:
-        prng = Random(f"{seed}-{p.id}")
-        date = START_DATE + datetime.timedelta(days=prng.randint(0, 5))
-        for i in range(1, emails_per_persona + 1):
-            drafts.append(_make_row(p, i, date, prng, vars))
-            date += datetime.timedelta(days=prng.randint(3, 10))
+        prng = Random(f"{settings.seed}-{p.id}")
+        date = timeline.start_date + datetime.timedelta(
+            days=prng.randint(timeline.start_offset_days.min, timeline.start_offset_days.max)
+        )
+        for i in range(1, settings.emails_per_persona + 1):
+            drafts.append(_make_row(p, i, date, prng, settings))
+            date += datetime.timedelta(
+                days=prng.randint(timeline.gap_days.min, timeline.gap_days.max)
+            )
 
     drafts.sort(key=lambda d: (d.date, d.persona))
     return [Fact(n=n, **dict(draft)) for n, draft in enumerate(drafts, 1)]
@@ -70,7 +67,7 @@ def build_facts(
 def render(model: BaseChatModel, facts: list[Fact], personas: list[Persona]) -> None:
     persona_by_id = {p.id: p for p in personas}
     EMAILS_DIR.mkdir(parents=True, exist_ok=True)
-    with open("facts.jsonl", "w") as f:
+    with open(FACTS_PATH, "w") as f:
         for fact in facts:
             f.write(fact.model_dump_json() + "\n")
             path = EMAILS_DIR / f"{fact.key}.eml"
@@ -82,18 +79,14 @@ def render(model: BaseChatModel, facts: list[Fact], personas: list[Persona]) -> 
 
 
 def main():
-    with open("config.yaml", "r") as f:
+    with open(WORLD_PATH, "r") as f:
         data = yaml.safe_load(f)
     config = ConfigFile.model_validate(data)
 
-    facts = build_facts(
-        config.personas,
-        config.generation.seed,
-        config.generation.emails_per_persona,
-        config.generation.variables,
-    )
+    facts = build_facts(config.personas, config.generation)
 
-    model = create_model(model="ollama/qwen3.5:9b", temperature=0.7)
+    renderer = config.generation.renderer
+    model = create_model(model=renderer.model, temperature=renderer.temperature)
 
     render(model, facts, config.personas)
 

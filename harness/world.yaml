@@ -41,6 +41,18 @@ personas:
 generation:
   seed: 42
   emails_per_persona: 15
+  # Chance an omit_origin persona omits it, per email (seeded coin flip).
+  omission_rate: 0.7
+  timeline:
+    start_date: 2023-01-01
+    start_offset_days: { min: 0, max: 5 } # first email, relative to start_date
+    gap_days: { min: 3, max: 10 } # between a persona's emails
+  # The model that renders facts into prose. Part of the world's definition:
+  # the email cache is keyed on file existence, so the rendered emails were
+  # written by whatever model this named at the time.
+  renderer:
+    model: ollama/qwen3.5:9b
+    temperature: 0.7
   # Per-email variables, drawn seeded. Never memory material.
   variables:
     pieces: { min: 8, max: 26 }

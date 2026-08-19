@@ -47,9 +47,23 @@ class GenerationVariables(BaseModel):
     weight_kg: Range
 
 
+class Timeline(BaseModel):
+    start_date: datetime.date
+    start_offset_days: Range
+    gap_days: Range
+
+
+class RendererSettings(BaseModel):
+    model: str
+    temperature: float
+
+
 class GenerationSettings(BaseModel):
     seed: int
     emails_per_persona: int
+    omission_rate: float  # chance an omit_origin persona omits it, per email
+    timeline: Timeline
+    renderer: RendererSettings
     variables: GenerationVariables
 
 
