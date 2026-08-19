@@ -8,8 +8,6 @@ The knowledge makes the agent better at the next email.
 The name comes from the crows. Corvids remember individual humans for
 years.
 
-Status: **design draft**. No code exists.
-
 ## Why this exists
 
 Long-term memory is the one agentic capability that the sibling projects

@@ -1,6 +1,6 @@
 from email import message_from_string, policy
 from email.utils import parsedate_to_datetime
-
+from openai import AsyncOpenAI
 from graphiti_core import Graphiti
 from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
@@ -11,18 +11,36 @@ from pathlib import Path
 from harness.models import Fact
 from graphiti_core.nodes import EpisodeType
 from harness.utils import build_fact_key
+from corvid.memory.ontology import entity_types, edge_types, edge_type_map
 
 EMAILS_DIR = Path("harness/emails")
 
 # Configure Ollama LLM client
 llm_config = LLMConfig(
     api_key="ollama",  # Ollama doesn't require a real API key, but some placeholder is needed
-    model="qwen2.5:14b-instruct",
-    small_model="qwen2.5:14b-instruct",
+    model="qwen3:30b-a3b-instruct-2507-q8_0",
+    small_model="qwen3:30b-a3b-instruct-2507-q8_0",
+    temperature=0,
     base_url="http://localhost:11434/v1",  # Ollama's OpenAI-compatible endpoint
 )
 
-llm_client = OpenAIGenericClient(config=llm_config)
+
+def make_nothink_client(api_key: str, base_url: str) -> AsyncOpenAI:
+    """Create an LLM client using OpenAI but set reasoning_effort to none so we dont use thinking for Ollama models"""
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    orig_create = client.chat.completions.create
+
+    async def create(*args, **kwargs):
+        kwargs.setdefault("extra_body", {})["reasoning_effort"] = "none"
+        return await orig_create(*args, **kwargs)
+
+    client.chat.completions.create = create  # instance-level wrap
+    return client
+
+
+llm_client = OpenAIGenericClient(
+    config=llm_config, client=make_nothink_client("ollama", "http://localhost:11434/v1")
+)
 
 # Initialize Graphiti with Ollama clients
 graphiti = Graphiti(
@@ -33,8 +51,8 @@ graphiti = Graphiti(
     embedder=OpenAIEmbedder(
         config=OpenAIEmbedderConfig(
             api_key="ollama",  # Placeholder API key
-            embedding_model="nomic-embed-text-v2-moe:latest",
-            embedding_dim=768,
+            embedding_model="mxbai-embed-large ",
+            embedding_dim=1024,
             base_url="http://localhost:11434/v1",
         )
     ),
@@ -58,6 +76,10 @@ async def _process_fact(fact: Fact):
         source_description="customer email",
         reference_time=date,
         source=EpisodeType.text,  # default is message; text fits emails
+        entity_types=entity_types,
+        edge_types=edge_types,
+        edge_type_map=edge_type_map,
+        excluded_entity_types=["Entity"],
     )
     print("Episode added for fact:", fact_key)
 

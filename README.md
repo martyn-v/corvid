@@ -11,8 +11,7 @@ years.
 
 ## Status
 
-**Design phase.** This repo holds a complete design document, an example
-persona, and no code. Read [DESIGN.md](DESIGN.md).
+**Exploring.** This repo holds a complete design document, and some very rough harness code to generate emails, ingest them into Graphiti and manually verify the output. Read [DESIGN.md](DESIGN.md).
 
 ## The idea in five lines
 

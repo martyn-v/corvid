@@ -3,11 +3,12 @@
 # Everything here is ground truth.
 
 personas:
-
   # Persona A: states everything. The control.
   - id: nordfrost
     company: Nordfrost Seafood AB
-    contact: Erik Lindqvist
+    contact:
+      name: Erik Lindqvist
+      email: elindqvist@nordfrost.example.com
     origin: { name: "Gothenburg, Sweden", locode: SEGOT }
     destination: { name: "Bogotá, Colombia", locode: COBOG }
     mode: ocean_reefer
@@ -20,18 +21,20 @@ personas:
   # Persona B: omits the origin in most emails, and moves once.
   - id: acme-alimentos
     company: ACME Alimentos SAS
-    contact: Marta Restrepo
+    contact:
+      name: Marta Restrepo
+      email: marta.restrepo@acme-alimentos.example.com
     origin: { name: "Bogotá, Colombia", locode: COBOG }
     destination: { name: "Rotterdam, Netherlands", locode: NLRTM }
     mode: ocean_fcl
     commodity: packaged non-perishable foods
-    omit_origin: true          # seeded coin flip per email
-    change:                    # the supersession test
+    omit_origin: true # seeded coin flip per email
+    change: # the supersession test
       at_email: 10
       origin: { name: "Cartagena, Colombia", locode: COCTG }
       reason_in_email: "we moved our export operation to the coast"
     style:
-      language: es
+      language: en
       tone: warm, informal, opens with a pleasantry
 
 # Generation settings.

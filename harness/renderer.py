@@ -24,13 +24,25 @@ Rules:
 - Do not add facts that are not in the list: no reference numbers, no
   container types, no prices, no postal addresses.
 - If the list has no origin, do not mention or hint at an origin.
-- Body: 3 to 6 sentences, signed with the contact name. Use real line
-  breaks: greeting on its own line, blank lines between paragraphs, and
-  the sign-off on its own lines. Wrap body lines at roughly 72 characters.
+{intro_rule}- Body: 3 to 6 sentences. Use real line breaks: greeting on its own
+  line, blank lines between paragraphs, and the sign-off on its own
+  lines. Wrap body lines at roughly 72 characters.
+- After the sign-off, end with a realistic signature block on its own
+  lines: the sender's full name, company, and email address, exactly as
+  given in the facts. Do not invent phone numbers, job titles, websites,
+  or postal addresses.
 - Language: {language}. Tone: {tone}.
 """,
-    input_variables=["language", "tone"],
+    input_variables=["language", "tone", "intro_rule"],
 )
+
+FIRST_EMAIL_INTRO_RULE = """\
+- This is the sender's first email to this freight forwarder: after the
+  greeting, open with a brief introduction of the sender and their
+  company (one or two sentences) before making the request. Describe the
+  company's business only in terms the facts support (its name, its
+  commodity, where it ships from and to).
+"""
 
 USER_PROMPT_TEMPLATE = PromptTemplate(
     template="""
@@ -43,8 +55,9 @@ USER_PROMPT_TEMPLATE = PromptTemplate(
 
 def summarize_facts(fact: Fact, persona: Persona) -> str:
     facts = []
-    facts.append(f"- Company: {persona.company}")
+    facts.append(f"- Sender Company: {persona.company}")
     facts.append(f"- Sender: {persona.contact.name}")
+    facts.append(f"- Sender email: {persona.contact.email}")
     if not fact.origin_omitted:
         facts.append(f"- Origin: {fact.origin}")
     facts.append(f"- Destination: {fact.destination}")
@@ -63,6 +76,7 @@ def render_email(model: BaseChatModel, fact: Fact, persona: Persona) -> str:
             content=SYSTEM_PROMPT_TEMPLATE.format(
                 language=persona.style.language,
                 tone=persona.style.tone,
+                intro_rule=FIRST_EMAIL_INTRO_RULE if fact.index == 1 else "",
             )
         ),
         HumanMessage(
