@@ -2,7 +2,7 @@ import datetime
 from pathlib import Path
 from random import Random
 from corvid.llm import create_model
-from harness.models import Fact, Persona, GenerationVariables, ConfigFile
+from harness.models import Fact, FactDraft, Persona, GenerationVariables, ConfigFile
 import yaml
 from langchain_core.language_models import BaseChatModel
 
@@ -18,7 +18,7 @@ def _make_row(
     date: datetime.date,
     prng: Random,
     variables: GenerationVariables,
-) -> Fact:
+) -> FactDraft:
     origin = p.origin
     is_change = False
     change_reason: str | None = None
@@ -34,8 +34,7 @@ def _make_row(
     if is_change or i == 1:
         origin_omitted = False  # first email and change email must state the origin
 
-    return Fact(
-        n=None,
+    return FactDraft(
         index=i,
         persona=p.id,
         date=date,
@@ -56,19 +55,16 @@ def build_facts(
     emails_per_persona: int,
     vars: GenerationVariables,
 ) -> list[Fact]:
-    rows: list[Fact] = []
+    drafts: list[FactDraft] = []
     for p in personas:
         prng = Random(f"{seed}-{p.id}")
         date = START_DATE + datetime.timedelta(days=prng.randint(0, 5))
         for i in range(1, emails_per_persona + 1):
-            rows.append(_make_row(p, i, date, prng, vars))
+            drafts.append(_make_row(p, i, date, prng, vars))
             date += datetime.timedelta(days=prng.randint(3, 10))
 
-    rows.sort(key=lambda r: (r.date, r.persona))
-    for n, row in enumerate(rows, 1):
-        row.n = n
-
-    return rows
+    drafts.sort(key=lambda d: (d.date, d.persona))
+    return [Fact(n=n, **dict(draft)) for n, draft in enumerate(drafts, 1)]
 
 
 def render(model: BaseChatModel, facts: list[Fact], personas: list[Persona]) -> None:

@@ -58,8 +58,9 @@ class ConfigFile(BaseModel):
     generation: GenerationSettings
 
 
-class Fact(BaseModel):
-    n: int | None
+class FactDraft(BaseModel):
+    """A fact before global numbering; n is assigned after the date sort."""
+
     index: int
     persona: str
     date: datetime.date
@@ -71,6 +72,10 @@ class Fact(BaseModel):
     weight_kg: int
     origin_omitted: bool
     change_reason: str | None = None
+
+
+class Fact(FactDraft):
+    n: int
 
     @property
     def key(self) -> str:
