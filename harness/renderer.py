@@ -1,6 +1,7 @@
 import datetime
 from email.utils import format_datetime
 
+from corvid.logging import make_logger
 from harness.models import Fact, Persona
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
@@ -8,6 +9,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 
 TO_ADDRESS = "quotes@forwarder.example"
+
+logger = make_logger("renderer")
 
 SYSTEM_PROMPT_TEMPLATE = PromptTemplate(
     template="""\
@@ -71,6 +74,14 @@ def summarize_facts(fact: Fact, persona: Persona) -> str:
 
 
 def render_email(model: BaseChatModel, fact: Fact, persona: Persona) -> str:
+    logger.debug(
+        "rendering email",
+        key=fact.key,
+        persona=persona.id,
+        first_email=fact.index == 1,
+        origin_omitted=fact.origin_omitted,
+        change_email=fact.change_reason is not None,
+    )
     messages = [
         SystemMessage(
             content=SYSTEM_PROMPT_TEMPLATE.format(
