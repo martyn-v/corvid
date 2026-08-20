@@ -2,6 +2,12 @@
 
 Quick notes to my future self. Details in [model-notes.md](model-notes.md).
 
+## 2026-08-20 — anchoring identity on the sender email
+
+- Graphiti fills `Contact.email` verbatim from the From line, first try, both personas — didn't even need the display-name fallback I built.
+- Dropping the company string-match in fill felt scary but the center-node reranking already keeps other customers' facts out of the top 3.
+- Questions don't need the customer name in them — the center node carries that context, exactly like DESIGN.md said all along.
+
 ## 2026-08-20 — the loop (extract, ask, learn, eval)
 
 - Customers will get their own emails wrong, and this system will happily learn their mistakes. If I want to study that, I should script the mistakes into the world — random ones just wreck the answer key.

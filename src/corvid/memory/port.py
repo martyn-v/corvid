@@ -17,8 +17,14 @@ class RecalledFact(BaseModel):
 class Memory(Protocol):
     """A memory interface for recalling and learning facts."""
 
-    async def recall(self, customer: str, question: str) -> list[RecalledFact]:
-        """Recalls a fact from memory."""
+    async def recall(
+        self, email: str, question: str, contact_name: str | None = None
+    ) -> list[RecalledFact]:
+        """Recalls facts anchored on the sender's email address.
+
+        The email is the only identifier guaranteed present in every
+        message; the display-name is a fallback handle on the same contact.
+        """
         ...
 
     async def learn(
@@ -38,8 +44,14 @@ class FakeMemory:
     def __init__(self, facts: list[RecalledFact] | None = None):
         self.facts = facts or []
         self.episodes: list[dict] = []
+        self.recall_calls: list[dict] = []
 
-    async def recall(self, customer: str, question: str) -> list[RecalledFact]:
+    async def recall(
+        self, email: str, question: str, contact_name: str | None = None
+    ) -> list[RecalledFact]:
+        self.recall_calls.append(
+            {"email": email, "question": question, "contact_name": contact_name}
+        )
         return self.facts
 
     async def learn(

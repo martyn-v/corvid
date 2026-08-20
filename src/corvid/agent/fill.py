@@ -10,26 +10,20 @@ def _value_endpoint(fact: RecalledFact, endpoint: Literal["source", "target"]) -
     return fact.target_name if endpoint == "target" else fact.source_name
 
 
-def _customer_endpoint(
-    fact: RecalledFact, endpoint: Literal["source", "target"]
-) -> str:
-    return fact.source_name if endpoint == "target" else fact.target_name
+def choose_fact(path: str, facts: list[RecalledFact]) -> RecalledFact | None:
+    """Picks the recalled edge that answers the field: right type, newest first.
 
-
-def choose_fact(
-    path: str, facts: list[RecalledFact], customer: str
-) -> RecalledFact | None:
-    """Picks the recalled edge that answers the field: right type, right customer, newest first."""
+    Trust that the facts concern this customer comes from recall itself,
+    which anchors the search on the sender's Contact node — not from
+    matching the extracted company string, which may be absent or spelled
+    differently from the Customer node.
+    """
     expected = RECALL_EDGES.get(path)
     if expected is None:
         return None
-    edge_name, endpoint = expected
+    edge_name, _ = expected
 
-    candidates = [
-        f
-        for f in facts
-        if f.edge_name == edge_name and _customer_endpoint(f, endpoint) == customer
-    ]
+    candidates = [f for f in facts if f.edge_name == edge_name]
     if not candidates:
         return None
     # datetime.min only ever compares against itself: the bool ranks dated facts above undated
@@ -44,12 +38,8 @@ def fill_from_recall(
     recalled: dict[str, list[RecalledFact]],
 ) -> None:
     """Fills missing fields in place from recalled edges, recording learned provenance."""
-    customer = request.requester.company
-    if customer is None:
-        return  # no anchor to trust any recalled fact against
-
     for path in request.missing():
-        fact = choose_fact(path, recalled.get(path, []), customer)
+        fact = choose_fact(path, recalled.get(path, []))
         if fact is None:
             continue
         _, endpoint = RECALL_EDGES[path]

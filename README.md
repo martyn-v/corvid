@@ -53,6 +53,9 @@ a custom ontology ([src/corvid/memory/ontology.py](src/corvid/memory/ontology.py
 `Customer`, `Contact`, and `Location` entities; `SHIPS_FROM`,
 `SHIPS_TO`, and `WORKS_FOR` edges with validity intervals, so a
 customer's move supersedes the old fact instead of contradicting it.
+Recall anchors on the sender's address (`Contact.email`) — the only
+identifier guaranteed present in every email; the company is a derived
+fact, reachable from the contact via `WORKS_FOR`.
 
 **Grading is free.** [harness/eval.py](harness/eval.py) replays all
 thirty emails against a cold graph and diffs the result against the
@@ -84,24 +87,6 @@ and an Ollama model benchmark against the real Graphiti ingest.
 
 ## Roadmap
 
-- **Anchor identity on the sender's email, not the company name.**
-  The company is a _derived_ fact: emails without a signature have no
-  extractable company, and even when extraction infers one (e.g.
-  `acme-alimentos` from the domain), recall does an exact string match
-  against the Customer node name (`ACME Alimentos SAS`) and silently
-  misses. The sender address is the only identifier guaranteed present
-  in every email. Plan:
-  - Give the `Contact` entity an `email` attribute in the ontology
-    (same pattern as `Location.locode`); the address sits verbatim in
-    the From line of every episode.
-  - Anchor recall with `MATCH (n:Entity:Contact {email: $email})` and
-    use that node as `center_node_uuid`; key `recall_missing_fields` on
-    `requester.email` instead of `requester.company`.
-  - Keep the edge ontology unchanged — `SHIPS_FROM`/`SHIPS_TO` stay on
-    Customer, reachable via `WORKS_FOR` (two hops from the centroid),
-    so colleagues at the same company still share knowledge.
-  - Verify graphiti reliably populates `Contact.email`; fallback is
-    matching the Contact by From display-name.
 - **Give the world more to omit.** Today origin is the only omittable
   fact, and the generator forces email 1 to state it — so memory always
   knows the answer before the first omission and a legitimate question

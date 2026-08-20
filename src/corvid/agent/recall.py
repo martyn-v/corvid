@@ -5,10 +5,11 @@ from corvid.memory.port import Memory, RecalledFact
 
 
 RECALL_QUESTIONS = {
-    "origin.name": "Where does {customer} ship from?",
-    "destination.name": "Where does {customer} ship to?",
-    "requester.name": "Who is the contact person for {customer}?",
-}  # Questions mirror the ontology's fact templates — see DESIGN.md, "Decisions that hold at any scale"
+    "origin.name": "Where does the customer ship from?",
+    "destination.name": "Where does the customer ship to?",
+    "requester.name": "Who works for the customer?",
+}  # Questions mirror the ontology's fact templates; the center node supplies
+# the customer context — see DESIGN.md, "Decisions that hold at any scale"
 
 RECALL_EDGES: dict[str, tuple[str, Literal["source", "target"]]] = {
     "origin.name": ("SHIPS_FROM", "target"),
@@ -20,18 +21,23 @@ RECALL_EDGES: dict[str, tuple[str, Literal["source", "target"]]] = {
 async def recall_missing_fields(
     quote_request: QuoteRequest, memory: Memory
 ) -> dict[str, list[RecalledFact]]:
-    """Recalls missing fields from the knowledge graph."""
-    customer = quote_request.requester.company
-    if customer is None:
+    """Recalls missing fields from the knowledge graph.
+
+    Anchored on the sender's email — the only identifier guaranteed present
+    in every email. The company is a derived fact and may be absent or spelled
+    differently from the Customer node.
+    """
+    email = quote_request.requester.email
+    if email is None:
         return {}
 
     recalled: dict[str, list[RecalledFact]] = {}
     for path in quote_request.missing():
-        template = RECALL_QUESTIONS.get(path)
-        if template is None:
+        question = RECALL_QUESTIONS.get(path)
+        if question is None:
             recalled[path] = []  # memory has no way to know this field
         else:
             recalled[path] = await memory.recall(
-                customer, template.format(customer=customer)
+                email, question, contact_name=quote_request.requester.name
             )
     return recalled

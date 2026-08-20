@@ -17,6 +17,13 @@ def test_recall_edges_mirror_recall_questions():
     assert all(name in edge_types for name, _ in RECALL_EDGES.values())
 
 
+def test_recall_questions_need_no_interpolation():
+    """The center node supplies the customer context (DESIGN.md); questions
+    are fixed strings that work even when the company is unknown."""
+    for question in RECALL_QUESTIONS.values():
+        assert "{" not in question
+
+
 @pytest.mark.asyncio
 async def test_recall_missing_fields():
     """Test the recall_missing_fields function."""
@@ -57,21 +64,48 @@ async def test_recall_missing_fields():
 
 
 @pytest.mark.asyncio
-async def test_returns_empty_list_for_unknowable_keys():
-    """Test that recall_missing_fields returns an empty list for keys that cannot be recalled."""
+async def test_recall_anchors_on_the_sender_email():
+    """Every memory lookup is keyed on requester.email, with the display
+    name as the fallback handle — never on the company."""
     # ARRANGE:
     quote_request = QuoteRequest.model_validate(
         {
             "requester": {
                 "name": "John Doe",
-                "email": None,
-                "company": "Acme Corp",
+                "email": "john.doe@example.com",
+                "company": None,
             },
             "origin": {"name": None},
-            "destination": {"name": None},
+            "destination": {"name": "Miami"},
         }
     )
+    memory = FakeMemory()
 
+    # ACT:
+    await recall_missing_fields(quote_request, memory)
+
+    # ASSERT:
+    assert memory.recall_calls  # company being unknown did not stop recall
+    for call in memory.recall_calls:
+        assert call["email"] == "john.doe@example.com"
+        assert call["contact_name"] == "John Doe"
+
+
+@pytest.mark.asyncio
+async def test_recall_works_without_company_or_name():
+    """A signature-less email still recalls: the From address is enough."""
+    # ARRANGE:
+    quote_request = QuoteRequest.model_validate(
+        {
+            "requester": {
+                "name": None,
+                "email": "john.doe@example.com",
+                "company": None,
+            },
+            "origin": {"name": None},
+            "destination": {"name": "Miami"},
+        }
+    )
     fake_facts = [
         RecalledFact(
             fact="Acme Corp ships from Cartagena",
@@ -88,15 +122,14 @@ async def test_returns_empty_list_for_unknowable_keys():
     recalled = await recall_missing_fields(quote_request, memory)
 
     # ASSERT:
-    assert "requester.email" in recalled
-    assert recalled["requester.email"] == []
+    assert recalled["origin.name"] == fake_facts
+    assert recalled["requester.name"] == fake_facts  # recallable via WORKS_FOR
 
 
 @pytest.mark.asyncio
-async def test_returns_empty_array_when_company_is_none():
-    """Test that recall_missing_fields returns an empty list when company is None."""
-
-    # ARRANGE:
+async def test_returns_empty_list_for_unknowable_keys():
+    """Test that recall_missing_fields returns an empty list for keys that cannot be recalled."""
+    # ARRANGE: company is missing and no question template covers it
     quote_request = QuoteRequest.model_validate(
         {
             "requester": {
@@ -115,4 +148,32 @@ async def test_returns_empty_array_when_company_is_none():
     recalled = await recall_missing_fields(quote_request, memory)
 
     # ASSERT:
+    assert "requester.company" in recalled
+    assert recalled["requester.company"] == []
+
+
+@pytest.mark.asyncio
+async def test_returns_empty_dict_when_email_is_none():
+    """No sender address means no anchor: nothing to recall against."""
+
+    # ARRANGE:
+    quote_request = QuoteRequest.model_validate(
+        {
+            "requester": {
+                "name": "John Doe",
+                "email": None,
+                "company": "Acme Corp",
+            },
+            "origin": {"name": None},
+            "destination": {"name": None},
+        }
+    )
+
+    memory = FakeMemory()
+
+    # ACT:
+    recalled = await recall_missing_fields(quote_request, memory)
+
+    # ASSERT:
     assert recalled == {}
+    assert memory.recall_calls == []

@@ -29,7 +29,11 @@ class FakeGraphiti:
         self, question, center_node_uuid=None, num_results=None, group_ids=None
     ):
         self.search_calls.append(
-            {"question": question, "group_ids": group_ids}
+            {
+                "question": question,
+                "center_node_uuid": center_node_uuid,
+                "group_ids": group_ids,
+            }
         )
         return self._edges
 
@@ -51,7 +55,103 @@ def edge(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
-CUSTOMER_LOOKUP = [{"uuid": "cust-1"}]
+CONTACT_LOOKUP = [{"uuid": "contact-1"}]
+EMAIL = "marta@acme.example.com"
+
+
+@pytest.mark.asyncio
+async def test_recall_anchors_on_the_contact_email():
+    """The anchor is the sender's Contact node matched by email — the only
+    identifier every email is guaranteed to carry."""
+    # ARRANGE:
+    driver = FakeDriver(
+        [
+            CONTACT_LOOKUP,
+            [
+                {"uuid": "cust-1", "name": "Acme Corp"},
+                {"uuid": "loc-1", "name": "Cartagena"},
+            ],
+        ]
+    )
+    fake = FakeGraphiti(driver, [edge()])
+    memory = GraphitiMemory(fake)
+
+    # ACT:
+    facts = await memory.recall(EMAIL, "Where does the customer ship from?")
+
+    # ASSERT: the anchor query matches a Contact node on its email attribute
+    anchor_query, anchor_params = driver.calls[0]
+    assert "Entity:Contact" in anchor_query
+    assert "Customer" not in anchor_query
+    assert anchor_params["email"] == EMAIL
+    # ASSERT: that node centers the search
+    assert fake.search_calls[0]["center_node_uuid"] == "contact-1"
+    assert len(facts) == 1
+
+
+@pytest.mark.asyncio
+async def test_recall_falls_back_to_the_contact_name():
+    """If no Contact carries the email, the From display-name finds the node."""
+    # ARRANGE: email lookup misses, name lookup hits
+    driver = FakeDriver(
+        [
+            [],
+            CONTACT_LOOKUP,
+            [
+                {"uuid": "cust-1", "name": "Acme Corp"},
+                {"uuid": "loc-1", "name": "Cartagena"},
+            ],
+        ]
+    )
+    fake = FakeGraphiti(driver, [edge()])
+    memory = GraphitiMemory(fake)
+
+    # ACT:
+    facts = await memory.recall(
+        EMAIL, "Where does the customer ship from?", contact_name="Marta Restrepo"
+    )
+
+    # ASSERT: second lookup matched the Contact by name and anchored the search
+    fallback_query, fallback_params = driver.calls[1]
+    assert "Entity:Contact" in fallback_query
+    assert fallback_params["name"] == "Marta Restrepo"
+    assert fake.search_calls[0]["center_node_uuid"] == "contact-1"
+    assert len(facts) == 1
+
+
+@pytest.mark.asyncio
+async def test_recall_returns_empty_on_unknown_sender():
+    """Cold start: no contact node by email or name, no search, no facts."""
+    # ARRANGE:
+    driver = FakeDriver([[], []])
+    fake = FakeGraphiti(driver, [edge()])
+    memory = GraphitiMemory(fake)
+
+    # ACT:
+    facts = await memory.recall(
+        "nobody@nowhere.example.com",
+        "Where does the customer ship from?",
+        contact_name="Nobody",
+    )
+
+    # ASSERT:
+    assert facts == []
+    assert fake.search_calls == []
+
+
+@pytest.mark.asyncio
+async def test_recall_without_fallback_name_skips_the_name_lookup():
+    """No display-name means one anchor attempt only."""
+    # ARRANGE:
+    driver = FakeDriver([[]])
+    memory = GraphitiMemory(FakeGraphiti(driver, [edge()]))
+
+    # ACT:
+    facts = await memory.recall(EMAIL, "Where does the customer ship from?")
+
+    # ASSERT:
+    assert facts == []
+    assert len(driver.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -60,7 +160,7 @@ async def test_recall_returns_enriched_facts():
     # ARRANGE:
     driver = FakeDriver(
         [
-            CUSTOMER_LOOKUP,
+            CONTACT_LOOKUP,
             [
                 {"uuid": "cust-1", "name": "Acme Corp"},
                 {"uuid": "loc-1", "name": "Cartagena"},
@@ -70,7 +170,7 @@ async def test_recall_returns_enriched_facts():
     memory = GraphitiMemory(FakeGraphiti(driver, [edge()]))
 
     # ACT:
-    facts = await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+    facts = await memory.recall(EMAIL, "Where does the customer ship from?")
 
     # ASSERT:
     assert len(facts) == 1
@@ -95,7 +195,7 @@ async def test_recall_drops_invalidated_edges():
     )
     driver = FakeDriver(
         [
-            CUSTOMER_LOOKUP,
+            CONTACT_LOOKUP,
             [
                 {"uuid": "cust-1", "name": "Acme Corp"},
                 {"uuid": "loc-1", "name": "Cartagena"},
@@ -105,7 +205,7 @@ async def test_recall_drops_invalidated_edges():
     memory = GraphitiMemory(FakeGraphiti(driver, [stale, edge()]))
 
     # ACT:
-    facts = await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+    facts = await memory.recall(EMAIL, "Where does the customer ship from?")
 
     # ASSERT:
     assert [f.uuid for f in facts] == ["edge-1"]
@@ -117,7 +217,7 @@ async def test_recall_resolves_names_in_one_query():
     # ARRANGE:
     driver = FakeDriver(
         [
-            CUSTOMER_LOOKUP,
+            CONTACT_LOOKUP,
             [
                 {"uuid": "cust-1", "name": "Acme Corp"},
                 {"uuid": "loc-1", "name": "Cartagena"},
@@ -137,10 +237,10 @@ async def test_recall_resolves_names_in_one_query():
     memory = GraphitiMemory(FakeGraphiti(driver, edges))
 
     # ACT:
-    facts = await memory.recall("Acme Corp", "Where does Acme Corp ship to?")
+    facts = await memory.recall(EMAIL, "Where does the customer ship to?")
 
     # ASSERT:
-    assert len(driver.calls) == 2  # customer lookup + one name-resolution query
+    assert len(driver.calls) == 2  # contact lookup + one name-resolution query
     assert {f.target_name for f in facts} == {"Cartagena", "Miami"}
 
 
@@ -149,11 +249,11 @@ async def test_recall_skips_name_query_when_all_edges_invalidated():
     """No surviving edges means no name-resolution query and an empty result."""
     # ARRANGE:
     stale = edge(invalid_at=datetime(2026, 2, 1, tzinfo=timezone.utc))
-    driver = FakeDriver([CUSTOMER_LOOKUP])
+    driver = FakeDriver([CONTACT_LOOKUP])
     memory = GraphitiMemory(FakeGraphiti(driver, [stale]))
 
     # ACT:
-    facts = await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+    facts = await memory.recall(EMAIL, "Where does the customer ship from?")
 
     # ASSERT:
     assert facts == []
@@ -162,11 +262,12 @@ async def test_recall_skips_name_query_when_all_edges_invalidated():
 
 @pytest.mark.asyncio
 async def test_recall_scopes_every_lookup_to_the_group():
-    """With a group_id, the anchor lookup, search, and name query all filter by it."""
-    # ARRANGE:
+    """With a group_id, the anchor lookups, search, and name query all filter by it."""
+    # ARRANGE: email lookup misses so the name fallback runs too
     driver = FakeDriver(
         [
-            CUSTOMER_LOOKUP,
+            [],
+            CONTACT_LOOKUP,
             [
                 {"uuid": "cust-1", "name": "Acme Corp"},
                 {"uuid": "loc-1", "name": "Cartagena"},
@@ -177,9 +278,11 @@ async def test_recall_scopes_every_lookup_to_the_group():
     memory = GraphitiMemory(fake, group_id="eval")
 
     # ACT:
-    await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+    await memory.recall(
+        EMAIL, "Where does the customer ship from?", contact_name="Marta Restrepo"
+    )
 
-    # ASSERT: both Cypher queries filter on the group
+    # ASSERT: every Cypher query filters on the group
     for query, params in driver.calls:
         assert "group_id" in query
         assert params["group_id"] == "eval"
@@ -192,14 +295,14 @@ async def test_recall_without_group_is_unscoped():
     """No group_id keeps the legacy behavior: no filters anywhere."""
     # ARRANGE:
     driver = FakeDriver(
-        [CUSTOMER_LOOKUP, [{"uuid": "cust-1", "name": "Acme Corp"},
-                           {"uuid": "loc-1", "name": "Cartagena"}]]
+        [CONTACT_LOOKUP, [{"uuid": "cust-1", "name": "Acme Corp"},
+                          {"uuid": "loc-1", "name": "Cartagena"}]]
     )
     fake = FakeGraphiti(driver, [edge()])
     memory = GraphitiMemory(fake)
 
     # ACT:
-    await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+    await memory.recall(EMAIL, "Where does the customer ship from?")
 
     # ASSERT:
     for query, _ in driver.calls:
@@ -255,18 +358,3 @@ async def test_wipe_group_detach_deletes_only_that_group():
     assert "group_id" in query
     assert params["group_id"] == "eval"
     assert count == 5
-
-
-@pytest.mark.asyncio
-async def test_recall_returns_empty_on_unknown_customer():
-    """Cold start: no customer node, no search, no facts."""
-    # ARRANGE:
-    driver = FakeDriver([[]])
-    memory = GraphitiMemory(FakeGraphiti(driver, [edge()]))
-
-    # ACT:
-    facts = await memory.recall("Nobody Inc.", "Where does Nobody Inc. ship from?")
-
-    # ASSERT:
-    assert facts == []
-    assert len(driver.calls) == 1

@@ -96,15 +96,27 @@ class GraphitiMemory:
     def _group_params(self) -> dict:
         return {} if self.group_id is None else {"group_id": self.group_id}
 
-    async def recall(self, customer: str, question: str) -> list[RecalledFact]:
+    async def recall(
+        self, email: str, question: str, contact_name: str | None = None
+    ) -> list[RecalledFact]:
         group_filter = "" if self.group_id is None else " AND n.group_id = $group_id"
         records, _, _ = await self.graphiti.driver.execute_query(
-            "MATCH (n:Entity:Customer) WHERE n.name = $name"
+            "MATCH (n:Entity:Contact) WHERE n.email = $email"
             + group_filter
             + " RETURN n.uuid AS uuid",
-            name=customer,
+            email=email,
             **self._group_params(),
         )
+        if not records and contact_name is not None:
+            # extraction may not have populated Contact.email; the From
+            # display-name is the next-best handle on the same node
+            records, _, _ = await self.graphiti.driver.execute_query(
+                "MATCH (n:Entity:Contact) WHERE n.name = $name"
+                + group_filter
+                + " RETURN n.uuid AS uuid",
+                name=contact_name,
+                **self._group_params(),
+            )
 
         if not records:
             return []  # cold start: memory knows nothing yet

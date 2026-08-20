@@ -13,6 +13,12 @@ class Contact(BaseModel):
     """A person's name: the human who signed or wrote the email.
     Example: 'Erik Lindqvist'. NOT a code, NOT a company, NOT a place."""
 
+    email: str | None = Field(
+        None,
+        description="The person's email address, verbatim from the From line, "
+        "e.g. erik@nordfrost.se",
+    )
+
 
 class Location(BaseModel):
     """A city or port. The name is the city name only, e.g. 'Gothenburg' —

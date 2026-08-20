@@ -76,19 +76,27 @@ def test_ignores_facts_with_wrong_edge_type():
     assert provenance == {}
 
 
-def test_ignores_facts_about_other_customers():
-    """An edge anchored on a different customer never fills this request."""
+def test_fills_when_the_extracted_company_disagrees_with_the_graph():
+    """Extraction inferring 'acme-alimentos' from the domain while the graph
+    says 'ACME Alimentos SAS' must not drop the fact: trust is anchored on
+    the sender's contact node at recall, not on a company string match."""
     # ARRANGE:
-    request = make_request()
+    request = make_request(
+        requester={
+            "name": "Marta Restrepo",
+            "email": "marta@acme-alimentos.example.com",
+            "company": "acme-alimentos",
+        }
+    )
     provenance: dict[str, Provenance] = {}
-    recalled = {"origin.name": [ships_from(customer="Other Corp")]}
+    recalled = {"origin.name": [ships_from(customer="ACME Alimentos SAS")]}
 
     # ACT:
     fill_from_recall(request, provenance, recalled)
 
     # ASSERT:
-    assert request.origin.name is None
-    assert provenance == {}
+    assert request.origin.name == "Cartagena"
+    assert provenance["origin.name"].source == "learned"
 
 
 def test_prefers_the_newest_fact():
@@ -145,11 +153,12 @@ def test_fills_requester_name_from_source_endpoint():
     assert provenance["requester.name"].source == "learned"
 
 
-def test_fills_nothing_without_a_customer():
-    """No company on the request means no anchor to trust any fact."""
+def test_fills_without_a_company():
+    """A signature-less email carries no company, but recall was anchored on
+    the sender's email — its facts still fill."""
     # ARRANGE:
     request = make_request(
-        requester={"name": "John Doe", "email": None, "company": None}
+        requester={"name": None, "email": "john.doe@example.com", "company": None}
     )
     provenance: dict[str, Provenance] = {}
     recalled = {"origin.name": [ships_from()]}
@@ -158,5 +167,5 @@ def test_fills_nothing_without_a_customer():
     fill_from_recall(request, provenance, recalled)
 
     # ASSERT:
-    assert request.origin.name is None
-    assert provenance == {}
+    assert request.origin.name == "Cartagena"
+    assert provenance["origin.name"].source == "learned"
