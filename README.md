@@ -102,6 +102,27 @@ and an Ollama model benchmark against the real Graphiti ingest.
     so colleagues at the same company still share knowledge.
   - Verify graphiti reliably populates `Contact.email`; fallback is
     matching the Contact by From display-name.
+- **Per-episode question series.** Eval prints one aggregate count; the
+  headline claim is questions *falling over the sequence*. Emit
+  questions-per-episode, per persona, in send order.
+- **A `stale` score category.** A fill using the pre-change origin
+  after the change email currently scores plain `wrong`. Check the fill
+  against what was true at that time and name the failure.
+- **Persisted run artifact.** Eval only prints. Write scores,
+  provenance, and questions to a JSONL per run so runs are comparable
+  across memory designs.
+- **Renderer validation pass.** Nothing checks a rendered email states
+  its facts — or omits the origin when the coin said so. One cheap
+  check per email against its case, so the answer key can't silently
+  disagree with the prose.
+- **Content-keyed render cache.** The cache is "skip if the file
+  exists", so prompt or model changes require deleting emails by hand.
+  Key it on facts + prompt + model instead.
+- **Score more than two fields.** Only `origin.name` and
+  `destination.name` are graded; requester name/email/company are
+  `required_for_quote` and drive the ask loop but are never scored.
+- **Graph diff against ground truth.** The other half of free grading:
+  facts learned, missed, invented — straight from Neo4j vs world.yaml.
 
 ## Lineage
 
