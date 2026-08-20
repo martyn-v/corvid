@@ -43,6 +43,12 @@ def test_match_is_case_insensitive():
     assert scores == {"origin.name": "correct", "destination.name": "correct"}
 
 
+def test_match_ignores_diacritics():
+    """Local models transliterate accents away; "Bogota" still means Bogotá."""
+    scores = score_case(_case(), _request("Bogota", "Rotterdam"), {})
+    assert scores == {"origin.name": "correct", "destination.name": "correct"}
+
+
 def test_wrong_when_origin_holds_the_customer_name():
     """The observed failure mode: the customer name lands in origin.name."""
     scores = score_case(_case(), _request("Acme Alimentos", "Rotterdam"), {})

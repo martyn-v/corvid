@@ -1,5 +1,6 @@
 """Score an eval run's extracted quote request against a case's ground truth."""
 
+import unicodedata
 from typing import Literal
 
 from corvid.contracts import Provenance, QuoteRequest
@@ -9,8 +10,15 @@ Outcome = Literal["correct", "wrong", "missing", "hallucinated"]
 
 
 def _city(name: str) -> str:
-    """The comparable city part; ground truth names read "Bogotá, Colombia"."""
-    return name.split(",")[0].strip().casefold()
+    """The comparable city part; ground truth names read "Bogotá, Colombia".
+
+    Diacritics are stripped: extraction models transliterate ("Bogota"),
+    and that is not an extraction error.
+    """
+    city = name.split(",")[0].strip().casefold()
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", city) if not unicodedata.combining(c)
+    )
 
 
 def score_case(
