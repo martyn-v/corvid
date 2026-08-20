@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from corvid.agent.extract import extract_quote_request
+from corvid.agent.fill import fill_from_recall
 from corvid.agent.parse_email import ParsedEmail, parse_eml
 from corvid.agent.recall import recall_missing_fields
 from corvid.contracts import Provenance, QuoteRequest, present_fields
@@ -74,7 +75,19 @@ async def recall_node(state: State, *, memory: Memory) -> dict:
 
 def fill_node(state: State) -> dict:
     """Fills in missing fields in the quote request from recalled data."""
-    return {}
+    if "quote_request" not in state:
+        raise ValueError("Quote request is required for filling.")
+
+    request = state["quote_request"].model_copy(deep=True)
+    provenance = dict(state.get("provenance", {}))
+    before = set(provenance)
+
+    fill_from_recall(request, provenance, state.get("recalled", {}))
+
+    return {
+        "quote_request": request,
+        "provenance": {path: provenance[path] for path in provenance.keys() - before},
+    }
 
 
 def route_after_fill(state: State) -> Literal["ask", "learn"]:

@@ -95,13 +95,58 @@ async def test_graph_with_recall_and_fill():
     # ASSERT:
     assert result["parsed_email"] is not None
     assert result["quote_request"] is not None
-    assert result["quote_request"].missing() == [
-        "origin.name",
-    ]
+    assert result["quote_request"].missing() == []
+    assert result["quote_request"].origin.name == "Cartagena"
     assert {path: p.source for path, p in result["provenance"].items()} == {
         "requester.name": "email",
         "requester.email": "email",
         "requester.company": "email",
         "destination.name": "email",
+        "origin.name": "learned",
     }
+    assert result["provenance"]["origin.name"].fact_uuid == "1"
     assert result["recalled"] == {"origin.name": facts}
+
+
+def test_fill_node_returns_only_new_provenance():
+    """fill_node reports just the fields it filled and leaves the input state untouched."""
+    # ARRANGE:
+    from corvid.agent.graph import fill_node
+    from corvid.contracts import Provenance, QuoteRequest
+
+    request = QuoteRequest.model_validate(
+        {
+            "requester": {
+                "name": "John Doe",
+                "email": "john.doe@example.com",
+                "company": "Acme Alimentos",
+            },
+            "origin": {"name": None},
+            "destination": {"name": "Miami"},
+        }
+    )
+    state: State = {
+        "file_path": "unused",
+        "quote_request": request,
+        "provenance": {"destination.name": Provenance(source="email")},
+        "recalled": {
+            "origin.name": [
+                RecalledFact(
+                    fact="Acme Alimentos ships from Cartagena",
+                    uuid="1",
+                    edge_name="SHIPS_FROM",
+                    source_name="Acme Alimentos",
+                    target_name="Cartagena",
+                    valid_at=None,
+                )
+            ]
+        },
+    }
+
+    # ACT:
+    result = fill_node(state)
+
+    # ASSERT:
+    assert set(result["provenance"]) == {"origin.name"}
+    assert result["quote_request"].origin.name == "Cartagena"
+    assert request.origin.name is None  # input state not mutated
