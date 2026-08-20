@@ -1,4 +1,5 @@
 import datetime
+import re
 from email.utils import format_datetime
 
 from corvid.logging import make_logger
@@ -26,7 +27,13 @@ Rules:
 - Include every fact from the list. Do not skip any.
 - Do not add facts that are not in the list: no reference numbers, no
   container types, no prices, no postal addresses.
-- If the list has no origin, do not mention or hint at an origin.
+- The shipment travels from the Origin to the Destination. The
+  Destination is where the goods arrive. Never present the Destination
+  as the place the shipment departs from — "from <destination>" or
+  "from your location in <destination>" would state the route backwards.
+- If the list has no origin, do not mention, hint at, or invent a
+  departure location. Phrase the request as shipping "to <destination>"
+  and leave where it ships from unsaid.
 {intro_rule}- Body: 3 to 6 sentences. Use real line breaks: greeting on its own
   line, blank lines between paragraphs, and the sign-off on its own
   lines. Wrap body lines at roughly 72 characters.
@@ -54,6 +61,23 @@ USER_PROMPT_TEMPLATE = PromptTemplate(
     """,
     input_variables=["facts"],
 )
+
+
+def destination_leaked_as_origin(body: str, destination: str) -> bool:
+    """True when the destination city is presented as the departure point.
+
+    Catches "from <destination-city>" (en) and "desde <city>" (es), with a
+    few words allowed in between ("from your location in Rotterdam") — but
+    not across a direction flip ("from Bogotá to Rotterdam" is a correct
+    lane, not a leak).
+    """
+    city = destination.split(",")[0].strip()
+    pattern = (
+        r"\b(?:from|desde)\b"
+        r"(?:(?!\b(?:to|a|hasta|hacia|destined|arriving|para)\b|[.\n]).){0,40}?"
+        rf"\b{re.escape(city)}\b"
+    )
+    return re.search(pattern, body, re.IGNORECASE | re.DOTALL) is not None
 
 
 def summarize_facts(case: Case, persona: Persona) -> str:
@@ -95,11 +119,25 @@ def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
         ),
     ]
 
-    response = model.invoke(messages)
-
-    raw = (
-        response.content if isinstance(response.content, str) else str(response.content)
-    )
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        response = model.invoke(messages)
+        raw = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
+        if not destination_leaked_as_origin(raw, case.destination.name):
+            break
+        logger.warning(
+            "destination rendered as origin, retrying",
+            key=case.key,
+            attempt=attempt,
+        )
+    else:
+        raise ValueError(
+            f"{case.key}: destination presented as origin after {attempts} attempts:\n{raw}"
+        )
 
     sent_at = datetime.datetime.combine(
         case.date, datetime.time(9, 0), tzinfo=datetime.timezone.utc
