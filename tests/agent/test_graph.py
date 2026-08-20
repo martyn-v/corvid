@@ -175,6 +175,105 @@ async def test_graph_complete_request_skips_ask():
     assert result.get("asked", []) == []
 
 
+@pytest.mark.asyncio
+async def test_graph_learns_the_email_as_an_episode():
+    """LEARN feeds the raw email (headers + body) to memory, named after the file."""
+    # ARRANGE: a complete request, so the graph goes straight to learn
+    extraction_response = json.dumps(
+        {
+            "requester": {
+                "name": "John Doe",
+                "email": "john.doe@example.com",
+                "company": "Acme Alimentos",
+            },
+            "origin": {"name": "Cartagena"},
+            "destination": {"name": "Miami"},
+        }
+    )
+    fake_model = GenericFakeChatModel(messages=iter([extraction_response]))
+    memory = FakeMemory()
+    graph = build_graph(fake_model, memory)
+
+    # ACT:
+    result = await graph.ainvoke(
+        {"file_path": "tests/fixtures/emails/001-acme-alimentos-01.eml"}
+    )
+
+    # ASSERT: one episode, named for the email file, body starts with the headers
+    assert len(memory.episodes) == 1
+    episode = memory.episodes[0]
+    assert episode["name"] == "001-acme-alimentos-01"
+    assert episode["body"].startswith("From: ")
+    assert episode["date"] == result["parsed_email"].date
+    assert episode["source_description"] == "customer email"
+
+
+@pytest.mark.asyncio
+async def test_graph_learns_answered_questions_as_their_own_episode():
+    """Answers from the ask interrupt become a second, answered-question episode."""
+    # ARRANGE: origin missing, nothing recalled → ask
+    extraction_response = json.dumps(
+        {
+            "requester": {
+                "name": "John Doe",
+                "email": "john.doe@example.com",
+                "company": "Acme Alimentos",
+            },
+            "destination": {"name": "Miami"},
+        }
+    )
+    fake_model = GenericFakeChatModel(messages=iter([extraction_response]))
+    memory = FakeMemory()
+    graph = build_graph(fake_model, memory, checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "case-3"}}
+
+    # ACT:
+    await graph.ainvoke(
+        {"file_path": "tests/fixtures/emails/001-acme-alimentos-01.eml"}, config
+    )
+    await graph.ainvoke(Command(resume={"origin.name": "Cartagena"}), config)
+
+    # ASSERT: email episode plus one Q&A episode with only the answered question
+    assert [e["name"] for e in memory.episodes] == [
+        "001-acme-alimentos-01",
+        "001-acme-alimentos-01-answers",
+    ]
+    answers = memory.episodes[1]
+    assert answers["source_description"] == "answered question"
+    assert "Cartagena" in answers["body"]
+    assert "Marta Restrepo" in answers["body"]  # the email's sender is the answerer
+    assert "company" not in answers["body"]  # unanswered questions are not ingested
+
+
+@pytest.mark.asyncio
+async def test_graph_skips_answers_episode_when_nothing_was_answered():
+    """An ask with no answers leaves only the email episode."""
+    extraction_response = json.dumps(
+        {
+            "requester": {
+                "name": "John Doe",
+                "email": "john.doe@example.com",
+                "company": "Acme Alimentos",
+            },
+            "destination": {"name": "Miami"},
+        }
+    )
+    fake_model = GenericFakeChatModel(messages=iter([extraction_response]))
+    memory = FakeMemory()
+    graph = build_graph(fake_model, memory, checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "case-4"}}
+
+    await graph.ainvoke(
+        {"file_path": "tests/fixtures/emails/001-acme-alimentos-01.eml"}, config
+    )
+    # every asked path present, all unanswered — never an empty dict
+    await graph.ainvoke(
+        Command(resume={"requester.company": None, "origin.name": None}), config
+    )
+
+    assert [e["name"] for e in memory.episodes] == ["001-acme-alimentos-01"]
+
+
 def test_fill_node_returns_only_new_provenance():
     """fill_node reports just the fields it filled and leaves the input state untouched."""
     # ARRANGE:

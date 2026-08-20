@@ -21,8 +21,14 @@ class Memory(Protocol):
         """Recalls a fact from memory."""
         ...
 
-    async def learn(self, name: str, body: str, date: datetime) -> None:
-        """Adds one email episode to memory."""
+    async def learn(
+        self,
+        name: str,
+        body: str,
+        date: datetime,
+        source_description: str = "customer email",
+    ) -> None:
+        """Adds one episode to memory, tagged with where it came from."""
         ...
 
 
@@ -31,10 +37,23 @@ class FakeMemory:
 
     def __init__(self, facts: list[RecalledFact] | None = None):
         self.facts = facts or []
-        self.episodes: list[tuple[str, str, datetime]] = []
+        self.episodes: list[dict] = []
 
     async def recall(self, customer: str, question: str) -> list[RecalledFact]:
         return self.facts
 
-    async def learn(self, name: str, body: str, date: datetime) -> None:
-        self.episodes.append((name, body, date))
+    async def learn(
+        self,
+        name: str,
+        body: str,
+        date: datetime,
+        source_description: str = "customer email",
+    ) -> None:
+        self.episodes.append(
+            {
+                "name": name,
+                "body": body,
+                "date": date,
+                "source_description": source_description,
+            }
+        )

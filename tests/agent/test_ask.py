@@ -47,7 +47,7 @@ def test_apply_answers_records_unanswered_questions_without_filling():
     provenance: dict[str, Provenance] = {}
     questions = questions_for(request)
 
-    exchanges = apply_answers(request, provenance, questions, {})
+    exchanges = apply_answers(request, provenance, questions, {"origin.name": None})
 
     assert request.origin.name is None
     assert provenance == {}

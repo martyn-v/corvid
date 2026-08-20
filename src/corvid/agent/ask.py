@@ -33,7 +33,7 @@ def apply_answers(
     request: QuoteRequest,
     provenance: dict[str, Provenance],
     questions: dict[str, str],
-    answers: dict[str, str],
+    answers: dict[str, str | None],
 ) -> list[Exchange]:
     """Fills answered fields with answered_question provenance, in place.
 

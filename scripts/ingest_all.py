@@ -10,10 +10,11 @@ Usage:
 import asyncio
 import json
 
+from corvid.agent.extract import render_email_prompt
+from corvid.agent.parse_email import parse_eml
 from corvid.config import graphiti_config
 from corvid.logging import make_logger
-from corvid.memory.graphiti import make_graphiti
-from corvid.memory.learn import learn, parse_email
+from corvid.memory.graphiti import GraphitiMemory, make_graphiti
 from harness.models import Case
 from harness.paths import EMAILS_DIR, CASES_PATH
 
@@ -25,6 +26,7 @@ GROUP_ID = "ingest"  # keeps the browse graph separate from eval's
 async def main():
     logger.info("starting ingestion", cases_path=str(CASES_PATH))
     graphiti = make_graphiti(graphiti_config)
+    memory = GraphitiMemory(graphiti, group_id=GROUP_ID)
     logger.debug("building indices and constraints")
     await graphiti.build_indices_and_constraints()
     count = 0
@@ -32,11 +34,15 @@ async def main():
         for line in f:
             case = Case.model_validate(json.loads(line))
 
-            body, date = parse_email((EMAILS_DIR / f"{case.key}.eml").read_text())
+            parsed = parse_eml((EMAILS_DIR / f"{case.key}.eml").read_bytes())
+            if parsed.date is None:
+                raise ValueError(f"{case.key}: email has no Date header")
             logger.debug(
-                "adding episode", case_key=case.key, reference_time=date.isoformat()
+                "adding episode",
+                case_key=case.key,
+                reference_time=parsed.date.isoformat(),
             )
-            await learn(graphiti, case.key, body, date, group_id=GROUP_ID)
+            await memory.learn(case.key, render_email_prompt(parsed), parsed.date)
             count += 1
     logger.info("ingestion complete", cases_ingested=count)
 

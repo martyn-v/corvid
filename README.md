@@ -40,12 +40,6 @@ to it: the questions curve, going down.
 
 ## Roadmap
 
-- **Learn step in the agent loop**: the agent learns each episode into
-  the graph as it handles it. Evals currently run against a graph
-  pre-built by the ingest-all script, so recall is tested against a
-  finished graph rather than one that grows per episode. The ask
-  step's answered questions (in state `asked`) must be ingested here
-  too, tagged `answered_question`.
 - **Anchor identity on the sender's email, not the company name.**
   The company is a *derived* fact: emails without a signature have no
   extractable company, and even when extraction infers one (e.g.

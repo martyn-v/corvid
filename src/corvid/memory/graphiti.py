@@ -140,11 +140,17 @@ class GraphitiMemory:
             for e in edges
         ]
 
-    async def learn(self, name: str, body: str, date: datetime) -> None:
+    async def learn(
+        self,
+        name: str,
+        body: str,
+        date: datetime,
+        source_description: str = "customer email",
+    ) -> None:
         await self.graphiti.add_episode(
             name=name,
             episode_body=body,
-            source_description="customer email",
+            source_description=source_description,
             reference_time=date,
             source=EpisodeType.text,  # default is message; text fits emails
             entity_types=entity_types,

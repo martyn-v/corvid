@@ -10,6 +10,7 @@ from langgraph.types import interrupt
 
 from corvid.agent.ask import Exchange, apply_answers, questions_for
 from corvid.agent.extract import extract_quote_request
+from corvid.agent.learn import answers_episode, email_episode
 from corvid.agent.fill import fill_from_recall
 from corvid.agent.parse_email import ParsedEmail, parse_eml
 from corvid.agent.recall import recall_missing_fields
@@ -105,8 +106,10 @@ def ask_node(state: State) -> dict:
     """Interrupts to ask the customer for the still-missing fields.
 
     The graph pauses here surfacing {path: question}; the caller resumes
-    with {path: answer} for the questions the customer answered. Everything
-    before the interrupt re-runs on resume, so it must stay pure.
+    with {path: answer} covering every asked path, None for unanswered.
+    Never resume with an empty dict — langgraph reads it as an (empty)
+    interrupt-id mapping and interrupts again. Everything before the
+    interrupt re-runs on resume, so it must stay pure.
     """
     if "quote_request" not in state:
         raise ValueError("Quote request is required for asking.")
@@ -125,8 +128,28 @@ def ask_node(state: State) -> dict:
     }
 
 
-def learn_node(state: State) -> dict:
-    """Learns from the extracted and filled quote request and stores it in the knowledge graph."""
+async def learn_node(state: State, *, memory: Memory) -> dict:
+    """LEARN: the raw email becomes an episode; answered questions become another.
+
+    The quote request itself never feeds memory — Graphiti reads the source
+    email, constrained by the ontology (see DESIGN.md).
+    """
+    if "parsed_email" not in state:
+        raise ValueError("Parsed email is required for learning.")
+
+    email = state["parsed_email"]
+    if email.date is None:
+        raise ValueError("Email date is required as the episode reference time.")
+
+    name, body = email_episode(state["file_path"], email)
+    await memory.learn(name, body, email.date)
+
+    answers = answers_episode(state["file_path"], email, state.get("asked", []))
+    if answers is not None:
+        qa_name, qa_body = answers
+        await memory.learn(
+            qa_name, qa_body, email.date, source_description="answered question"
+        )
     return {}
 
 
@@ -148,7 +171,7 @@ def build_graph(
     builder.add_node("recall", partial(recall_node, memory=memory))
     builder.add_node("fill", fill_node)
     builder.add_node("ask", ask_node)
-    builder.add_node("learn", learn_node)
+    builder.add_node("learn", partial(learn_node, memory=memory))
 
     builder.add_edge(START, "parse_email")
     builder.add_edge("parse_email", "extract_request")

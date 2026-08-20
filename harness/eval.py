@@ -57,11 +57,11 @@ async def main(cleanup: bool = False):
         )
         if "__interrupt__" in result:
             questions = result["__interrupt__"][0].value
+            # One entry per asked path, None when unanswered — an empty dict
+            # would not resolve the interrupt (see ask_node).
             answers = {
-                path: answer
+                path: answer_question(case, personas[case.persona], path)
                 for path in questions
-                if (answer := answer_question(case, personas[case.persona], path))
-                is not None
             }
             result = await graph.ainvoke(Command(resume=answers), config)
 

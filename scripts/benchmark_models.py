@@ -24,9 +24,10 @@ from graphiti_core import Graphiti
 from graphiti_core.nodes import EpisodeType
 from neo4j import GraphDatabase
 
+from corvid.agent.extract import render_email_prompt
+from corvid.agent.parse_email import parse_eml
 from corvid.config import graphiti_config
 from corvid.memory.graphiti import make_graphiti
-from corvid.memory.learn import parse_email
 from harness.paths import EMAILS_DIR
 
 OLLAMA = graphiti_config.llm_base_url.removesuffix("/v1")
@@ -71,7 +72,10 @@ def load_email() -> tuple[str, datetime]:
     paths = sorted(EMAILS_DIR.glob("*.eml"))
     if not paths:
         sys.exit(f"no .eml files found in {EMAILS_DIR}")
-    return parse_email(paths[0].read_text())
+    parsed = parse_eml(paths[0].read_bytes())
+    if parsed.date is None:
+        sys.exit(f"{paths[0].name}: email has no Date header")
+    return render_email_prompt(parsed), parsed.date
 
 
 async def timed_add_episode(graphiti: Graphiti, content: str, date) -> dict:

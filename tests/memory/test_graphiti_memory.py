@@ -219,6 +219,25 @@ async def test_learn_writes_episodes_into_the_group():
 
     # ASSERT:
     assert fake.episodes[0]["group_id"] == "eval"
+    assert fake.episodes[0]["source_description"] == "customer email"
+
+
+@pytest.mark.asyncio
+async def test_learn_tags_the_episode_source():
+    """An answered-question episode carries its own source tag, per the design."""
+    # ARRANGE:
+    memory = GraphitiMemory(fake := FakeGraphiti(FakeDriver([]), []))
+
+    # ACT:
+    await memory.learn(
+        "018-acme-09-answers",
+        "Q: ...\nA: ...",
+        datetime(2023, 3, 6),
+        source_description="answered question",
+    )
+
+    # ASSERT:
+    assert fake.episodes[0]["source_description"] == "answered question"
 
 
 @pytest.mark.asyncio
