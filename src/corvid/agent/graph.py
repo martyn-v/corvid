@@ -1,13 +1,13 @@
-from functools import partial
 import operator
-from typing import Literal, TypedDict
+from functools import partial
+from typing import Annotated, Literal, NotRequired, TypedDict
+
 from langchain_core.language_models import BaseChatModel
-from typing import NotRequired, Annotated
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+
 from corvid.agent.extract import extract_quote_request
-from corvid.agent.parse_email import parse_eml
-from corvid.agent.parse_email import ParsedEmail
+from corvid.agent.parse_email import ParsedEmail, parse_eml
 from corvid.agent.recall import recall_missing_fields
 from corvid.contracts import Provenance, QuoteRequest, present_fields
 from corvid.memory.port import Memory, RecalledFact
