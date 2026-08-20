@@ -3,9 +3,12 @@ from functools import partial
 from typing import Annotated, Literal, NotRequired, TypedDict
 
 from langchain_core.language_models import BaseChatModel
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import interrupt
 
+from corvid.agent.ask import Exchange, apply_answers, questions_for
 from corvid.agent.extract import extract_quote_request
 from corvid.agent.fill import fill_from_recall
 from corvid.agent.parse_email import ParsedEmail, parse_eml
@@ -25,6 +28,7 @@ class State(TypedDict):
     provenance: NotRequired[
         Annotated[dict[str, Provenance], operator.or_]
     ]  # Merge instead of replace; defaults to {} at runtime
+    asked: NotRequired[list[Exchange]]  # every question put to the customer
 
 
 def parse_node(state: State) -> dict:
@@ -98,8 +102,27 @@ def route_after_fill(state: State) -> Literal["ask", "learn"]:
 
 
 def ask_node(state: State) -> dict:
-    """Asks the customer for missing fields and fills them in."""
-    return {}
+    """Interrupts to ask the customer for the still-missing fields.
+
+    The graph pauses here surfacing {path: question}; the caller resumes
+    with {path: answer} for the questions the customer answered. Everything
+    before the interrupt re-runs on resume, so it must stay pure.
+    """
+    if "quote_request" not in state:
+        raise ValueError("Quote request is required for asking.")
+
+    questions = questions_for(state["quote_request"])
+    answers = interrupt(questions)
+
+    request = state["quote_request"].model_copy(deep=True)
+    provenance: dict[str, Provenance] = {}
+    exchanges = apply_answers(request, provenance, questions, answers)
+
+    return {
+        "quote_request": request,
+        "provenance": provenance,
+        "asked": exchanges,
+    }
 
 
 def learn_node(state: State) -> dict:
@@ -107,8 +130,16 @@ def learn_node(state: State) -> dict:
     return {}
 
 
-def build_graph(model: BaseChatModel, memory: Memory) -> CompiledStateGraph[State]:
-    """Builds a state graph for the agent."""
+def build_graph(
+    model: BaseChatModel,
+    memory: Memory,
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> CompiledStateGraph[State]:
+    """Builds a state graph for the agent.
+
+    A checkpointer is required to cross the ask interrupt; without one the
+    graph still runs requests that never need to ask.
+    """
 
     builder = StateGraph(State)
 
@@ -132,4 +163,4 @@ def build_graph(model: BaseChatModel, memory: Memory) -> CompiledStateGraph[Stat
     # GAPS2: check if the filled request has missing fields, if so go to ASK (simulates a request and response from customer), otherwise go to LEARN
     # LEARN: create an episode in the knowledge graph with the extracted request and provenance, and any filled fields
 
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
