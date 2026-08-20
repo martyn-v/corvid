@@ -1,8 +1,8 @@
 import datetime
 
 from corvid.contracts import Provenance, QuoteRequest
-from harness.models import Case, Location
-from harness.score import score_case
+from harness.models import Case, Contact, EmailStyle, Location, Persona, PersonaChange
+from harness.score import score_case, superseded_for
 
 
 def _case(origin_omitted: bool = False) -> Case:
@@ -70,6 +70,45 @@ def test_hallucinated_when_omitted_origin_was_filled_from_email():
     assert scores["origin.name"] == "hallucinated"
 
 
+def test_stale_when_wrong_fill_matches_the_superseded_value():
+    """A fill using the pre-change origin after the change is stale, not plain wrong."""
+    case = _case()
+    case.origin = Location(locode="COCTG", name="Cartagena, Colombia")
+    scores = score_case(
+        case,
+        _request("Bogotá", "Rotterdam"),
+        {"origin.name": Provenance(source="learned")},
+        superseded={"origin.name": "Bogotá, Colombia"},
+    )
+    assert scores["origin.name"] == "stale"
+
+
+def test_wrong_when_fill_matches_neither_truth_nor_superseded():
+    """The stale check only renames failures that match the old truth."""
+    case = _case()
+    case.origin = Location(locode="COCTG", name="Cartagena, Colombia")
+    scores = score_case(
+        case,
+        _request("Medellín", "Rotterdam"),
+        {},
+        superseded={"origin.name": "Bogotá, Colombia"},
+    )
+    assert scores["origin.name"] == "wrong"
+
+
+def test_correct_fill_stays_correct_when_a_superseded_value_exists():
+    """Recalling the post-change origin is the success path; superseded is irrelevant."""
+    case = _case()
+    case.origin = Location(locode="COCTG", name="Cartagena, Colombia")
+    scores = score_case(
+        case,
+        _request("Cartagena", "Rotterdam"),
+        {},
+        superseded={"origin.name": "Bogotá, Colombia"},
+    )
+    assert scores["origin.name"] == "correct"
+
+
 def test_omitted_origin_filled_from_memory_scores_normally():
     """An omitted origin recalled from the graph is the success path, not a hallucination."""
     provenance = {"origin.name": Provenance(source="learned")}
@@ -77,3 +116,44 @@ def test_omitted_origin_filled_from_memory_scores_normally():
         _case(origin_omitted=True), _request("Bogotá", "Rotterdam"), provenance
     )
     assert scores["origin.name"] == "correct"
+
+
+def _persona(change: PersonaChange | None) -> Persona:
+    return Persona(
+        id="acme-alimentos",
+        company="Acme Alimentos",
+        contact=Contact(name="Ana Ruiz", email="ana@acme.example"),
+        origin=Location(locode="COBOG", name="Bogotá, Colombia"),
+        destination=Location(locode="NLRTM", name="Rotterdam, Netherlands"),
+        mode="ocean_fcl",
+        commodity="packaged non-perishable foods",
+        omit_origin=True,
+        change=change,
+        style=EmailStyle(language="es", tone="formal"),
+    )
+
+
+def _change() -> PersonaChange:
+    return PersonaChange(
+        at_email=4,
+        origin=Location(locode="COCTG", name="Cartagena, Colombia"),
+        reason_in_email="new plant",
+    )
+
+
+def test_superseded_empty_for_persona_without_change():
+    assert superseded_for(_case(), _persona(change=None)) == {}
+
+
+def test_superseded_empty_before_the_change_email():
+    case = _case()
+    case.index = 3
+    assert superseded_for(case, _persona(change=_change())) == {}
+
+
+def test_superseded_holds_old_origin_from_the_change_email_onward():
+    case = _case()
+    case.index = 4
+    assert superseded_for(case, _persona(change=_change())) == {
+        "origin.name": "Bogotá, Colombia"
+    }

@@ -62,11 +62,15 @@ fact, reachable from the contact via `WORKS_FOR`.
 
 **Grading is free.** [harness/eval.py](harness/eval.py) replays all
 thirty emails against a cold graph and diffs the result against the
-answer sheet, one line per field: `correct`, `wrong`, `missing`, or
-`hallucinated` — a fill marked `source: email` for a fact the email
-omitted counts as hallucinated even when the value happens to be right.
-It also counts the headline number: **questions asked per episode,
-falling as memory works**.
+answer sheet, one line per field: `correct`, `wrong`, `missing`,
+`hallucinated`, or `stale` — a fill marked `source: email` for a fact
+the email omitted counts as hallucinated even when the value happens to
+be right, and a fill matching the pre-change origin after the change
+email is stale, not plain wrong. It also emits the headline number:
+**questions asked per episode, per persona, in send order — falling as
+memory works**. Every run writes a JSONL artifact to `harness/runs/`
+(scores, values, provenance, questions per case) so runs are comparable
+across memory designs.
 
 ## Running it
 
@@ -104,15 +108,6 @@ and an Ollama model benchmark against the real Graphiti ingest.
   question follows the ontology. First emails state everything, later
   ones get terse: the relationship arc that makes the questions curve
   fall.
-- **Per-episode question series.** Eval prints one aggregate count; the
-  headline claim is questions *falling over the sequence*. Emit
-  questions-per-episode, per persona, in send order.
-- **A `stale` score category.** A fill using the pre-change origin
-  after the change email currently scores plain `wrong`. Check the fill
-  against what was true at that time and name the failure.
-- **Persisted run artifact.** Eval only prints. Write scores,
-  provenance, and questions to a JSONL per run so runs are comparable
-  across memory designs.
 - **Content-keyed render cache.** The cache is "skip if the file
   exists", so prompt or model changes require deleting emails by hand.
   Key it on facts + prompt + model instead.

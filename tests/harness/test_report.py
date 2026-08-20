@@ -74,6 +74,14 @@ def test_hallucinated_score_says_email_omitted_it():
     assert "omitted" in line
 
 
+def test_stale_score_names_the_superseded_recall():
+    report = render_case(_case(), _request(), {}, {"origin.name": "stale"})
+    line = _line(report, "origin.name")
+    assert line.lstrip().startswith("↺")
+    assert "superseded" in line
+    assert "Bogotá, Colombia" in line
+
+
 def test_missing_required_field_is_called_out():
     report = render_case(_case(), _request(), {}, {})
     assert "MISSING" in _line(report, "requester.email")

@@ -13,6 +13,7 @@ import json
 import sys
 import time
 from collections import Counter
+from datetime import datetime, timezone
 
 import yaml
 from langchain_core.runnables import RunnableConfig
@@ -24,11 +25,13 @@ from corvid.logging import make_logger
 from corvid.memory.graphiti import make_graphiti, GraphitiMemory, wipe_group
 from corvid.config import graphiti_config
 from corvid.llm import create_model
+from corvid.llm import DEFAULT_MODEL
+from harness.artifact import case_record, git_state, question_series, run_header
 from harness.customer import answer_question
 from harness.models import Case, ConfigFile
-from harness.paths import CASES_PATH, EMAILS_DIR, WORLD_PATH
+from harness.paths import CASES_PATH, EMAILS_DIR, RUNS_DIR, WORLD_PATH
 from harness.report import render_case
-from harness.score import score_case
+from harness.score import score_case, superseded_for
 
 
 GROUP_ID = "eval"
@@ -60,9 +63,32 @@ async def main(cleanup: bool = False):
         group=GROUP_ID,
     )
 
+    started = datetime.now(timezone.utc)
+    RUNS_DIR.mkdir(exist_ok=True)
+    run_path = RUNS_DIR / f"{started.strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    commit, dirty = git_state()
+    header = run_header(
+        started=started,
+        world=world,
+        case_count=len(cases),
+        world_path=WORLD_PATH,
+        cases_path=CASES_PATH,
+        emails_dir=EMAILS_DIR,
+        group=GROUP_ID,
+        commit=commit,
+        dirty=dirty,
+        models={
+            "agent": DEFAULT_MODEL,
+            "graphiti_llm": graphiti_config.llm_model,
+            "graphiti_embedding": graphiti_config.embedding_model,
+        },
+    )
+    run_file = open(run_path, "w")
+    print(json.dumps(header, ensure_ascii=False), file=run_file, flush=True)
+
     run_start = time.perf_counter()
     totals: Counter[str] = Counter()
-    questions_total = 0
+    question_counts: list[tuple[str, int]] = []
     for case in cases:
         logger.info(
             "case starting",
@@ -94,31 +120,60 @@ async def main(cleanup: bool = False):
             result = await graph.ainvoke(Command(resume=answers), config)
 
         qr = result["quote_request"]
-        scores = score_case(case, qr, result["provenance"])
+        superseded = superseded_for(case, personas[case.persona])
+        scores = score_case(case, qr, result["provenance"], superseded=superseded)
         totals.update(scores.values())
         asked = result.get("asked", [])
-        questions_total += len(asked)
+        question_counts.append((case.persona, len(asked)))
+        seconds = round(time.perf_counter() - case_start, 1)
         logger.info(
             "case scored",
             key=case.key,
             scores=dict(Counter(scores.values())),
             questions=len(asked),
-            seconds=round(time.perf_counter() - case_start, 1),
+            seconds=seconds,
         )
+        record = case_record(
+            case, qr, result["provenance"], scores, [e.path for e in asked], seconds
+        )
+        print(json.dumps(record, ensure_ascii=False), file=run_file, flush=True)
         print(render_case(case, qr, result["provenance"], scores))
         if asked:
             print(f"  ? asked {len(asked)}: {', '.join(e.path for e in asked)}")
         print()
+
+    series = question_series(question_counts)
+    questions_total = sum(count for _, count in question_counts)
+    run_seconds = round(time.perf_counter() - run_start, 1)
+    print(
+        json.dumps(
+            {
+                "type": "summary",
+                "totals": dict(totals),
+                "questions": questions_total,
+                "series": series,
+                "seconds": run_seconds,
+            },
+            ensure_ascii=False,
+        ),
+        file=run_file,
+    )
+    run_file.close()
 
     logger.info(
         "eval complete",
         totals=dict(totals),
         questions=questions_total,
         cases=len(cases),
-        seconds=round(time.perf_counter() - run_start, 1),
+        seconds=run_seconds,
+        run_path=str(run_path),
     )
     print(f"\nScore totals: {dict(totals)}")
     print(f"Questions asked: {questions_total} over {len(cases)} cases")
+    print("Questions per episode, in send order:")
+    for persona, counts in series.items():
+        print(f"  {persona}: {' '.join(map(str, counts))}")
+    print(f"Run artifact: {run_path}")
 
     if cleanup:
         wiped = await wipe_group(graphiti.driver, GROUP_ID)

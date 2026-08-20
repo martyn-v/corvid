@@ -4,7 +4,7 @@ from corvid.contracts import Provenance, QuoteRequest
 from harness.models import Case
 from harness.score import Outcome
 
-_MARKERS = {"correct": "✓", "wrong": "✗", "hallucinated": "⚠"}
+_MARKERS = {"correct": "✓", "wrong": "✗", "hallucinated": "⚠", "stale": "↺"}
 
 
 def _value(request: QuoteRequest, path: str) -> object:
@@ -48,6 +48,8 @@ def render_case(
         line = f"  {marker} {path:<{width}}  {str(value):<{value_width}}  ({source})"
         if scores.get(path) == "wrong":
             line += f"  expected: {truths[path]}"
+        elif scores.get(path) == "stale":
+            line += f"  — superseded; expected: {truths[path]}"
         elif scores.get(path) == "hallucinated":
             line += f"  — email omitted this; expected empty or recalled {truths[path]}"
         lines.append(line)
