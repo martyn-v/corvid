@@ -117,6 +117,41 @@ and an Ollama model benchmark against the real Graphiti ingest.
 - **Graph diff against ground truth.** The other half of free grading:
   facts learned, missed, invented — straight from Neo4j vs world.yaml.
 
+### Probabilistic fill
+
+Real customers are higher-dimensional: one ships from A to B for
+commodity a, but A to C for commodity b. The fill should stop being
+newest-wins and become a probabilistic answer conditioned on everything
+the current email states — "given this origin and this commodity, 7 of
+9 past shipments went to Rotterdam." No agent-memory library does this
+natively (verified against Graphiti's source and the 2026 crop:
+Mem0, Zep, Letta, MemoryOS, A-MEM, MAGMA); it is a small mechanism
+Corvid builds on top, and the probabilities are counts over still-valid
+edges, never LLM guesses — so supersession retracts evidence for free.
+In dependency order:
+
+1. **Weighted lanes in the world.** Personas get
+   `lanes: [{origin, commodity, destination, weight}]`; each email
+   draws one; the answer sheet records the draw. Without conditional
+   structure in the world, nothing downstream is testable.
+2. **Ontology captures the conditioning fields.** The vote can only
+   condition on what the graph stores: add a `Commodity` entity and
+   edge, maybe mode. Per-episode noise (quantity, weight) stays out of
+   memory on purpose.
+3. **Multi-valued `SHIPS_TO`.** Docstring tweak so a new destination
+   does not supersede the old ones, plus the mirror of the current
+   supersession test: old destination edges stay open. Likeliest pain
+   point.
+4. **Episode-level recall.** New memory-port method: this customer's
+   episodes plus their still-valid edges (the `entity_edges` hop). One
+   Cypher query.
+5. **The vote.** Replace newest-wins in `choose_fact`: score each past
+   episode by how many of the current email's known field-values it
+   shares, vote on the missing field weighted by score, fill past a
+   threshold. Provenance carries the tally (7/9).
+6. **Grade it.** Fill accuracy against the drawn lane; later,
+   calibration of the learned probabilities against the lane weights.
+
 ## Lineage
 
 - [Squawkbox](https://github.com/martyn-v/squawkbox): one state, one

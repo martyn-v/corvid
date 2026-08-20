@@ -2,6 +2,17 @@
 
 Quick notes to my future self. Details in [model-notes.md](model-notes.md).
 
+## 2026-08-20 — higher-dimensional personas (design discussion, nothing built)
+
+- "Graph vs vector" was a false choice — Graphiti's search is already hybrid (embeddings + BM25 + graph). Vector memory adds nothing here.
+- Multiple SHIPS_TO edges coexist fine; the real bottleneck is `choose_fact`'s newest-wins, which would confidently fill whatever they shipped last.
+- What I actually want: a probabilistic fill conditioned on *all* known fields of the current episode, not one hand-picked conditional.
+- The simple answer is symbolic kNN at query time: score each past episode by how many of my known field-values it shares, vote on the missing field weighted by score. ~15 lines. No consolidation layer, no tendency nodes — that's the cached version I don't need at 30 episodes.
+- Probabilities must be counts over still-valid edges, never LLM guesses. Counting only valid edges means supersession retracts evidence for free — staleness and statistics compose.
+- Checked Graphiti source: the episode_mentions reranker counts *global* mentions, not conditioned on the current episode. The conditional vote isn't native — that's the edge of the tool, and finding it is kind of the point of this project.
+- None of this is learnable until the generator has weighted lane tables — no conditional structure in the world means newest-wins looks just as good.
+- No agent-memory library does conditional probabilistic fill (checked the 2026 crop: Mem0, Zep, Letta, MemoryOS, A-MEM, MAGMA — all retrieval + consolidation summaries). Classic ML solved it decades ago: pgmpy infers P(missing | known) from a fact table natively, sklearn predict_proba likewise. The glue — valid edges → dataframe — stays mine either way. At 30 rows the 15-line count still beats both.
+
 ## 2026-08-20 — renderer validation
 
 - The renderer loves spelling numbers out — "twenty-one pieces", even
