@@ -72,22 +72,47 @@ def make_graphiti(config: GraphitiConfig) -> Graphiti:
     return graphiti
 
 
-class GraphitiMemory:
-    """A memory implementation that uses Graphiti for recalling and learning facts."""
+async def wipe_group(driver, group_id: str) -> int:
+    """Detach-deletes every node in the group; returns how many existed."""
+    records, _, _ = await driver.execute_query(
+        "MATCH (n {group_id: $group_id}) DETACH DELETE n RETURN count(n) AS count",
+        group_id=group_id,
+    )
+    return records[0]["count"]
 
-    def __init__(self, graphiti: Graphiti):
+
+class GraphitiMemory:
+    """A memory implementation that uses Graphiti for recalling and learning facts.
+
+    A group_id scopes every read and write to that namespace so separate
+    graphs (eval, ingest, benchmark) never cross-pollute; None leaves the
+    memory unscoped.
+    """
+
+    def __init__(self, graphiti: Graphiti, group_id: str | None = None):
         self.graphiti = graphiti
+        self.group_id = group_id
+
+    def _group_params(self) -> dict:
+        return {} if self.group_id is None else {"group_id": self.group_id}
 
     async def recall(self, customer: str, question: str) -> list[RecalledFact]:
+        group_filter = "" if self.group_id is None else " AND n.group_id = $group_id"
         records, _, _ = await self.graphiti.driver.execute_query(
-            "MATCH (n:Entity:Customer {name: $name}) RETURN n.uuid AS uuid",
+            "MATCH (n:Entity:Customer) WHERE n.name = $name"
+            + group_filter
+            + " RETURN n.uuid AS uuid",
             name=customer,
+            **self._group_params(),
         )
 
         if not records:
             return []  # cold start: memory knows nothing yet
         edges = await self.graphiti.search(
-            question, center_node_uuid=records[0]["uuid"], num_results=3
+            question,
+            center_node_uuid=records[0]["uuid"],
+            num_results=3,
+            group_ids=None if self.group_id is None else [self.group_id],
         )
         edges = [e for e in edges if e.invalid_at is None]  # drop superseded facts
         if not edges:
@@ -95,8 +120,11 @@ class GraphitiMemory:
 
         uuids = {u for e in edges for u in (e.source_node_uuid, e.target_node_uuid)}
         name_records, _, _ = await self.graphiti.driver.execute_query(
-            "MATCH (n:Entity) WHERE n.uuid IN $uuids RETURN n.uuid AS uuid, n.name AS name",
+            "MATCH (n:Entity) WHERE n.uuid IN $uuids"
+            + group_filter
+            + " RETURN n.uuid AS uuid, n.name AS name",
             uuids=list(uuids),
+            **self._group_params(),
         )
         names = {r["uuid"]: r["name"] for r in name_records}
         return [
@@ -123,4 +151,5 @@ class GraphitiMemory:
             edge_types=edge_types,
             edge_type_map=edge_type_map,
             excluded_entity_types=["Entity"],
+            **self._group_params(),
         )

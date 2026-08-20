@@ -23,8 +23,14 @@ def parse_email(raw: str) -> tuple[str, datetime]:
 
 
 # FIXME: Duplication with GraphitiMemory
-async def learn(graphiti: Graphiti, name: str, body: str, date: datetime) -> None:
-    """Add one email to memory as an episode."""
+async def learn(
+    graphiti: Graphiti,
+    name: str,
+    body: str,
+    date: datetime,
+    group_id: str | None = None,
+) -> None:
+    """Add one email to memory as an episode, scoped to the group if given."""
     await graphiti.add_episode(
         name=name,
         episode_body=body,
@@ -35,4 +41,5 @@ async def learn(graphiti: Graphiti, name: str, body: str, date: datetime) -> Non
         edge_types=edge_types,
         edge_type_map=edge_type_map,
         excluded_entity_types=["Entity"],
+        **({} if group_id is None else {"group_id": group_id}),
     )

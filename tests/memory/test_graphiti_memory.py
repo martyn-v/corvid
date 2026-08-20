@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from corvid.memory.graphiti import GraphitiMemory
+from corvid.memory.graphiti import GraphitiMemory, wipe_group
 
 
 class FakeDriver:
@@ -22,9 +22,19 @@ class FakeGraphiti:
     def __init__(self, driver: FakeDriver, edges: list[SimpleNamespace]):
         self.driver = driver
         self._edges = edges
+        self.search_calls: list[dict] = []
+        self.episodes: list[dict] = []
 
-    async def search(self, question, center_node_uuid=None, num_results=None):
+    async def search(
+        self, question, center_node_uuid=None, num_results=None, group_ids=None
+    ):
+        self.search_calls.append(
+            {"question": question, "group_ids": group_ids}
+        )
         return self._edges
+
+    async def add_episode(self, **kwargs):
+        self.episodes.append(kwargs)
 
 
 def edge(**overrides) -> SimpleNamespace:
@@ -148,6 +158,84 @@ async def test_recall_skips_name_query_when_all_edges_invalidated():
     # ASSERT:
     assert facts == []
     assert len(driver.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_recall_scopes_every_lookup_to_the_group():
+    """With a group_id, the anchor lookup, search, and name query all filter by it."""
+    # ARRANGE:
+    driver = FakeDriver(
+        [
+            CUSTOMER_LOOKUP,
+            [
+                {"uuid": "cust-1", "name": "Acme Corp"},
+                {"uuid": "loc-1", "name": "Cartagena"},
+            ],
+        ]
+    )
+    fake = FakeGraphiti(driver, [edge()])
+    memory = GraphitiMemory(fake, group_id="eval")
+
+    # ACT:
+    await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+
+    # ASSERT: both Cypher queries filter on the group
+    for query, params in driver.calls:
+        assert "group_id" in query
+        assert params["group_id"] == "eval"
+    # ASSERT: the search is scoped too
+    assert fake.search_calls[0]["group_ids"] == ["eval"]
+
+
+@pytest.mark.asyncio
+async def test_recall_without_group_is_unscoped():
+    """No group_id keeps the legacy behavior: no filters anywhere."""
+    # ARRANGE:
+    driver = FakeDriver(
+        [CUSTOMER_LOOKUP, [{"uuid": "cust-1", "name": "Acme Corp"},
+                           {"uuid": "loc-1", "name": "Cartagena"}]]
+    )
+    fake = FakeGraphiti(driver, [edge()])
+    memory = GraphitiMemory(fake)
+
+    # ACT:
+    await memory.recall("Acme Corp", "Where does Acme Corp ship from?")
+
+    # ASSERT:
+    for query, _ in driver.calls:
+        assert "group_id" not in query
+    assert fake.search_calls[0]["group_ids"] is None
+
+
+@pytest.mark.asyncio
+async def test_learn_writes_episodes_into_the_group():
+    """Episodes carry the memory's group_id so graphs never cross-pollute."""
+    # ARRANGE:
+    fake = FakeGraphiti(FakeDriver([]), [])
+    memory = GraphitiMemory(fake, group_id="eval")
+
+    # ACT:
+    await memory.learn("018-acme-09", "From: ...", datetime(2023, 3, 6))
+
+    # ASSERT:
+    assert fake.episodes[0]["group_id"] == "eval"
+
+
+@pytest.mark.asyncio
+async def test_wipe_group_detach_deletes_only_that_group():
+    """wipe_group removes every node in the group and reports how many existed."""
+    # ARRANGE:
+    driver = FakeDriver([[{"count": 5}]])
+
+    # ACT:
+    count = await wipe_group(driver, "eval")
+
+    # ASSERT:
+    query, params = driver.calls[0]
+    assert "DETACH DELETE" in query
+    assert "group_id" in query
+    assert params["group_id"] == "eval"
+    assert count == 5
 
 
 @pytest.mark.asyncio

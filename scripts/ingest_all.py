@@ -19,6 +19,8 @@ from harness.paths import EMAILS_DIR, CASES_PATH
 
 logger = make_logger("ingest")
 
+GROUP_ID = "ingest"  # keeps the browse graph separate from eval's
+
 
 async def main():
     logger.info("starting ingestion", cases_path=str(CASES_PATH))
@@ -34,7 +36,7 @@ async def main():
             logger.debug(
                 "adding episode", case_key=case.key, reference_time=date.isoformat()
             )
-            await learn(graphiti, case.key, body, date)
+            await learn(graphiti, case.key, body, date, group_id=GROUP_ID)
             count += 1
     logger.info("ingestion complete", cases_ingested=count)
 

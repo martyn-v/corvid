@@ -1,7 +1,16 @@
-"""Run the agent graph over every generated email in the harness."""
+"""Run the agent graph over every generated email in the harness.
+
+Usage:
+    uv run -m harness.eval [--cleanup]
+
+Eval data lives in the "eval" group, wiped at the start of every run so
+each run is cold. Pass --cleanup to also wipe it when the run completes;
+by default it is kept for browsing in Neo4j until the next run.
+"""
 
 import asyncio
 import json
+import sys
 from collections import Counter
 
 import yaml
@@ -10,7 +19,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from corvid.agent.graph import build_graph
-from corvid.memory.graphiti import make_graphiti, GraphitiMemory
+from corvid.memory.graphiti import make_graphiti, GraphitiMemory, wipe_group
 from corvid.config import graphiti_config
 from corvid.llm import create_model
 from harness.customer import answer_question
@@ -20,10 +29,18 @@ from harness.report import render_case
 from harness.score import score_case
 
 
-async def main():
+GROUP_ID = "eval"
+
+
+async def main(cleanup: bool = False):
     model = create_model(format="json", temperature=0)
-    memory = GraphitiMemory(make_graphiti(graphiti_config))
+    graphiti = make_graphiti(graphiti_config)
+    memory = GraphitiMemory(graphiti, group_id=GROUP_ID)
     graph = build_graph(model, memory, checkpointer=InMemorySaver())
+
+    wiped = await wipe_group(graphiti.driver, GROUP_ID)
+    if wiped:
+        print(f"Wiped {wiped} nodes from group '{GROUP_ID}' (cold start)\n")
 
     with open(CASES_PATH) as f:
         cases = [Case.model_validate(json.loads(line)) for line in f]
@@ -61,6 +78,10 @@ async def main():
     print(f"\nScore totals: {dict(totals)}")
     print(f"Questions asked: {questions_total} over {len(cases)} cases")
 
+    if cleanup:
+        wiped = await wipe_group(graphiti.driver, GROUP_ID)
+        print(f"Cleaned up group '{GROUP_ID}': {wiped} nodes")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(cleanup="--cleanup" in sys.argv[1:]))
