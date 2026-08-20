@@ -2,7 +2,7 @@
 
 **Does a freight agent learn its customers the way a human operator
 does?** Corvid simulates customer relationships over time. Synthetic
-customers send freight requests in a sequence. An agent collects
+customers send freight quote requests in a sequence. An agent collects
 knowledge about each customer in a temporal knowledge graph. The
 knowledge makes the agent better at the next request.
 
@@ -11,37 +11,81 @@ years.
 
 ## Status
 
-**Exploring.** This repo holds a complete design document, and some very rough harness code to generate emails, ingest them into Graphiti and manually verify the output. Read [DESIGN.md](DESIGN.md).
+**Working end-to-end, small world.** The full loop runs: a seeded
+generator produces ground-truth emails, the agent handles them one at a
+time against a [Graphiti](https://github.com/getzep/graphiti) memory on
+Neo4j, and the harness scores every field against the answer key.
+Everything runs locally on Ollama. The world is deliberately tiny — two
+personas, thirty emails — enough to exercise omission, recall, and one
+scripted change. [DESIGN.md](DESIGN.md) holds the full design and the
+larger ambitions.
 
-## The idea in five lines
+## How it works
 
-- A seeded generator creates **ground truth first**: about 15 customer
-  personas with facts, habits, omission rates, and scripted changes. No
-  person labels anything, ever.
-- An LLM **renders** each episode's facts into a plausible email. The
-  LLM never authors facts; the answer key exists before the prose does.
-- The agent handles one email at a time: **recall** what the graph knows,
-  **extract** the request, **fill** gaps from memory with marked
-  provenance, **ask** about the rest, and **learn** the episode into the
-  graph. Answered questions become memory too.
-- The memory is [Graphiti](https://github.com/getzep/graphiti), a
-  temporal knowledge graph: typed edges with validity intervals, and
-  supersession when a customer changes.
-- Grading is free: the harness diffs the graph against the ground truth,
-  checks each fill against what was true at that time, and plots the
-  headline chart: **questions asked per episode, falling as memory
-  works**.
+**Ground truth first.** [harness/world.yaml](harness/world.yaml)
+defines two personas: `nordfrost` states everything (the control);
+`acme-alimentos` omits its origin on a seeded coin flip and moves city
+at email 10 (the supersession test). A seeded generator draws each
+persona's 15 cases — dates, weights, omissions, the change — into a
+JSONL answer sheet. No person labels anything, ever.
 
-## What the finished thing shows
+**An LLM renders, never authors.** Each case's facts are rendered into
+a plausible `.eml` email by a local model. The answer key exists before
+the prose does.
 
-A 3D graph that grows on screen while episodes replay. Nodes and edges
-appear when the agent learns. An edge flips when a customer changes. Next
-to it: the questions curve, going down.
+**The agent is a LangGraph state graph**
+([src/corvid/agent/graph.py](src/corvid/agent/graph.py)):
+
+- **parse** the raw email, **extract** a structured `QuoteRequest`
+  (requester, origin, destination), every present field tagged with
+  provenance `source: email`
+- **recall** missing fields from the knowledge graph and **fill** them
+  with provenance `source: memory`
+- **ask** the customer about whatever is still missing — a LangGraph
+  interrupt; the harness answers from ground truth, so the agent never
+  knows who's on the other end
+- **learn**: the raw email becomes a Graphiti episode, and answered
+  questions become a second episode. The extracted request itself never
+  feeds memory.
+
+**The memory is Graphiti**, a temporal knowledge graph over Neo4j, with
+a custom ontology ([src/corvid/memory/ontology.py](src/corvid/memory/ontology.py)):
+`Customer`, `Contact`, and `Location` entities; `SHIPS_FROM`,
+`SHIPS_TO`, and `WORKS_FOR` edges with validity intervals, so a
+customer's move supersedes the old fact instead of contradicting it.
+
+**Grading is free.** [harness/eval.py](harness/eval.py) replays all
+thirty emails against a cold graph and diffs the result against the
+answer sheet, one line per field: `correct`, `wrong`, `missing`, or
+`hallucinated` — a fill marked `source: email` for a fact the email
+omitted counts as hallucinated even when the value happens to be right.
+It also counts the headline number: **questions asked per episode,
+falling as memory works**.
+
+## Running it
+
+Requires [mise](https://mise.jdx.dev) (Python + uv), Docker, and a
+local [Ollama](https://ollama.com) with the models named in
+[harness/world.yaml](harness/world.yaml) and
+[src/corvid/config.py](src/corvid/config.py).
+
+```sh
+docker compose up -d        # Neo4j (browser at localhost:7474)
+uv run -m harness.generate  # build the answer sheet, render the emails
+uv run -m harness.eval      # run the agent over every email, score it
+uv run pytest               # tests
+```
+
+Rendered emails are cached on disk; delete one to re-render it. Eval
+runs in the `eval` graph group, wiped at the start of each run so every
+run is cold; pass `--cleanup` to also wipe it afterwards. Utility
+scripts live in [scripts/](scripts/): recall smoke checks, group wipes,
+and an Ollama model benchmark against the real Graphiti ingest.
 
 ## Roadmap
 
 - **Anchor identity on the sender's email, not the company name.**
-  The company is a *derived* fact: emails without a signature have no
+  The company is a _derived_ fact: emails without a signature have no
   extractable company, and even when extraction infers one (e.g.
   `acme-alimentos` from the domain), recall does an exact string match
   against the Customer node name (`ACME Alimentos SAS`) and silently
