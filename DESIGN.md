@@ -91,6 +91,17 @@ One email at a time, in order:
 - **A fill from memory is a proposal with provenance.** What the email
   stated and what memory supplied are never blended silently. This is
   the Freightcase rule.
+- **A recall question contains only what the stored facts contain.**
+  Questions are asked one per missing field, phrased to mirror the
+  ontology's fact templates ("Where does X ship from?" sits next to
+  "X ships from Y" in embedding space), and keyed by field so the fill
+  knows which facts answer which gap. The center node supplies the
+  customer context; repeating it in the question adds nothing. Context
+  the graph does not store — the known origin when asking for the
+  destination — is not grounding but noise, steering retrieval toward
+  the wrong edge type. If the ontology ever stores lanes, the facts
+  will contain origin and destination together, and only then does the
+  question grow to match. Ontology first; the question follows it.
 
 ### Milestones
 

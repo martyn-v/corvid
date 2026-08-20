@@ -4,6 +4,8 @@ import asyncio
 import json
 
 from corvid.agent.graph import build_graph
+from corvid.memory.graphiti import make_graphiti, GraphitiMemory
+from corvid.config import graphiti_config
 from corvid.contracts import Provenance, QuoteRequest
 from corvid.llm import create_model
 from harness.models import Case
@@ -24,7 +26,8 @@ def _summarize_provenance(prov: dict[str, Provenance]):
 
 async def main():
     model = create_model(format="json", temperature=0)
-    graph = build_graph(model)
+    memory = GraphitiMemory(make_graphiti(graphiti_config))
+    graph = build_graph(model, memory)
 
     with open(CASES_PATH) as f:
         cases = [Case.model_validate(json.loads(line)) for line in f]

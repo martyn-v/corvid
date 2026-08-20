@@ -5,6 +5,10 @@ from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from openai import AsyncOpenAI
+from datetime import datetime
+from graphiti_core.nodes import EpisodeType
+from corvid.memory.ontology import edge_type_map, edge_types, entity_types
+from corvid.memory.port import Memory, RecalledFact
 
 
 @dataclass
@@ -66,3 +70,38 @@ def make_graphiti(config: GraphitiConfig) -> Graphiti:
         cross_encoder=OpenAIRerankerClient(config=llm_config),
     )
     return graphiti
+
+
+class GraphitiMemory:
+    """A memory implementation that uses Graphiti for recalling and learning facts."""
+
+    def __init__(self, graphiti: Graphiti):
+        self.graphiti = graphiti
+
+    async def recall(self, customer: str, question: str) -> list[RecalledFact]:
+        records, _, _ = await self.graphiti.driver.execute_query(
+            "MATCH (n:Entity:Customer {name: $name}) RETURN n.uuid AS uuid",
+            name=customer,
+        )
+
+        if not records:
+            return []  # cold start: memory knows nothing yet
+        edges = await self.graphiti.search(
+            question, center_node_uuid=records[0]["uuid"], num_results=3
+        )
+        return [
+            RecalledFact(fact=e.fact, uuid=e.uuid, valid_at=e.valid_at) for e in edges
+        ]
+
+    async def learn(self, name: str, body: str, date: datetime) -> None:
+        await self.graphiti.add_episode(
+            name=name,
+            episode_body=body,
+            source_description="customer email",
+            reference_time=date,
+            source=EpisodeType.text,  # default is message; text fits emails
+            entity_types=entity_types,
+            edge_types=edge_types,
+            edge_type_map=edge_type_map,
+            excluded_entity_types=["Entity"],
+        )

@@ -8,7 +8,9 @@ from langgraph.graph.state import CompiledStateGraph
 from corvid.agent.extract import extract_quote_request
 from corvid.agent.parse_email import parse_eml
 from corvid.agent.parse_email import ParsedEmail
+from corvid.agent.recall import recall_missing_fields
 from corvid.contracts import Provenance, QuoteRequest, present_fields
+from corvid.memory.port import Memory, RecalledFact
 
 
 class State(TypedDict):
@@ -18,6 +20,7 @@ class State(TypedDict):
     parsed_email: NotRequired[ParsedEmail]
     quote_request: NotRequired[QuoteRequest]
     extraction_raw: NotRequired[dict]
+    recalled: NotRequired[dict[str, list[RecalledFact]]]
     provenance: NotRequired[
         Annotated[dict[str, Provenance], operator.or_]
     ]  # Merge instead of replace; defaults to {} at runtime
@@ -61,9 +64,12 @@ def route_after_extract(state: State) -> Literal["recall", "learn"]:
     return "recall" if state["quote_request"].missing() else "learn"
 
 
-def recall_node(state: State) -> dict:
+async def recall_node(state: State, *, memory: Memory) -> dict:
     """Recalls missing fields from the knowledge graph."""
-    return {}
+    if "quote_request" not in state:
+        raise ValueError("Quote request is required for recall.")
+
+    return {"recalled": await recall_missing_fields(state["quote_request"], memory)}
 
 
 def fill_node(state: State) -> dict:
@@ -88,16 +94,14 @@ def learn_node(state: State) -> dict:
     return {}
 
 
-def build_graph(model: BaseChatModel | None = None) -> CompiledStateGraph[State]:
+def build_graph(model: BaseChatModel, memory: Memory) -> CompiledStateGraph[State]:
     """Builds a state graph for the agent."""
-
-    assert model is not None, "A language model must be provided to build the graph."
 
     builder = StateGraph(State)
 
     builder.add_node("parse_email", parse_node)
     builder.add_node("extract_request", partial(extract_node, model=model))
-    builder.add_node("recall", recall_node)
+    builder.add_node("recall", partial(recall_node, memory=memory))
     builder.add_node("fill", fill_node)
     builder.add_node("ask", ask_node)
     builder.add_node("learn", learn_node)

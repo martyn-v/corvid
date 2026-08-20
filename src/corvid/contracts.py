@@ -69,6 +69,8 @@ class QuoteRequest(BaseModel):
     def missing(self) -> list[str]:
         """Returns a list of missing required fields in the quote request."""
         missing_fields = []
+        if not self.requester.company:
+            missing_fields.append("requester.company")
         if not self.requester.name:
             missing_fields.append("requester.name")
         if not self.requester.email:

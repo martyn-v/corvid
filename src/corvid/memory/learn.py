@@ -22,6 +22,7 @@ def parse_email(raw: str) -> tuple[str, datetime]:
     return body, date
 
 
+# FIXME: Duplication with GraphitiMemory
 async def learn(graphiti: Graphiti, name: str, body: str, date: datetime) -> None:
     """Add one email to memory as an episode."""
     await graphiti.add_episode(
