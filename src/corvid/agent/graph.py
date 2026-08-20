@@ -1,13 +1,14 @@
 from functools import partial
-from typing import TypedDict
+import operator
+from typing import Literal, TypedDict
 from langchain_core.language_models import BaseChatModel
-from typing import NotRequired
+from typing import NotRequired, Annotated
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from corvid.agent.extract import extract_quote_request
 from corvid.agent.parse_email import parse_eml
 from corvid.agent.parse_email import ParsedEmail
-from corvid.contracts import QuoteRequest, Provenance
+from corvid.contracts import Provenance, QuoteRequest, present_fields
 
 
 class State(TypedDict):
@@ -18,8 +19,8 @@ class State(TypedDict):
     quote_request: NotRequired[QuoteRequest]
     extraction_raw: NotRequired[dict]
     provenance: NotRequired[
-        dict[str, Provenance]
-    ]  # FIXME: to implement provenance tracking in the graph, we need to add a provenance field to the state. This will allow us to track the source of each piece of information in the quote request, whether it was extracted from the email, learned from previous interactions, or answered through a question. The provenance field will be a dictionary mapping field names to Provenance objects, which contain information about the source and validity of each piece of data.
+        Annotated[dict[str, Provenance], operator.or_]
+    ]  # Merge instead of replace; defaults to {} at runtime
 
 
 def parse_node(state: State) -> dict:
@@ -47,7 +48,44 @@ def extract_node(state: State, *, model: BaseChatModel) -> dict:
     return {
         "quote_request": result.request,
         "extraction_raw": result.raw,
+        "provenance": {
+            path: Provenance(source="email") for path in present_fields(result.request)
+        },
     }
+
+
+def route_after_extract(state: State) -> Literal["recall", "learn"]:
+    if "quote_request" not in state:
+        raise ValueError("Quote request is required for routing after extraction.")
+
+    return "recall" if state["quote_request"].missing() else "learn"
+
+
+def recall_node(state: State) -> dict:
+    """Recalls missing fields from the knowledge graph."""
+    return {}
+
+
+def fill_node(state: State) -> dict:
+    """Fills in missing fields in the quote request from recalled data."""
+    return {}
+
+
+def route_after_fill(state: State) -> Literal["ask", "learn"]:
+    if "quote_request" not in state:
+        raise ValueError("Quote request is required for routing after filling.")
+
+    return "ask" if state["quote_request"].missing() else "learn"
+
+
+def ask_node(state: State) -> dict:
+    """Asks the customer for missing fields and fills them in."""
+    return {}
+
+
+def learn_node(state: State) -> dict:
+    """Learns from the extracted and filled quote request and stores it in the knowledge graph."""
+    return {}
 
 
 def build_graph(model: BaseChatModel | None = None) -> CompiledStateGraph[State]:
@@ -59,10 +97,18 @@ def build_graph(model: BaseChatModel | None = None) -> CompiledStateGraph[State]
 
     builder.add_node("parse_email", parse_node)
     builder.add_node("extract_request", partial(extract_node, model=model))
+    builder.add_node("recall", recall_node)
+    builder.add_node("fill", fill_node)
+    builder.add_node("ask", ask_node)
+    builder.add_node("learn", learn_node)
 
     builder.add_edge(START, "parse_email")
     builder.add_edge("parse_email", "extract_request")
-    builder.add_edge("extract_request", END)
+    builder.add_conditional_edges("extract_request", route_after_extract)
+    builder.add_edge("recall", "fill")
+    builder.add_conditional_edges("fill", route_after_fill)
+    builder.add_edge("ask", "learn")
+    builder.add_edge("learn", END)
     # GAPS: check if the extracted request has missing fields, if so go to RECALL, otherwise go to LEARN
     # RECALL: try to find missing fields using graphiti
     # FILL: fill in the missing fields in the extracted request, track provenance
