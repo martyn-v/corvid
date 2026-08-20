@@ -13,13 +13,17 @@ from harness.paths import CASES_PATH, EMAILS_DIR
 
 
 def _summarize_provenance(prov: dict[str, Provenance]):
-    expected_fields = QuoteRequest.dot_fields()
-    provenance_fields = prov.keys()
-    missing_fields = set(expected_fields) - set(provenance_fields)
+    required = set(QuoteRequest.required_dot_fields())
+    optional = set(QuoteRequest.dot_fields()) - required
+    provenance_fields = set(prov.keys())
+    missing_fields = required - provenance_fields
     fields_by_source = {}
     for path, p in prov.items():
         fields_by_source.setdefault(p.source, []).append(path)
-    print(f"Provenance: {len(prov)} fields, missing: {len(missing_fields)}")
+    print(
+        f"Provenance: {len(prov)} fields, missing: {len(missing_fields)}, "
+        f"optional: {len(provenance_fields & optional)}/{len(optional)}"
+    )
     for source, paths in fields_by_source.items():
         print(f"  Source {source}: {len(paths)} fields")
 

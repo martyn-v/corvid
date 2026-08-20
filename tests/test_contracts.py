@@ -9,8 +9,47 @@ def test_dot_fields():
         "requester.email",
         "requester.company",
         "origin.name",
+        "origin.country",
+        "origin.code",
+        "destination.name",
+        "destination.country",
+        "destination.code",
+    ]
+
+
+def test_required_dot_fields():
+    """Only fields flagged required_for_quote are required; country/code are not."""
+    assert QuoteRequest.required_dot_fields() == [
+        "requester.name",
+        "requester.email",
+        "requester.company",
+        "origin.name",
         "destination.name",
     ]
+
+
+def test_missing_reports_all_required_on_empty_request():
+    """An empty request is missing exactly the required fields."""
+    empty = QuoteRequest.model_validate(
+        {"requester": {}, "origin": {}, "destination": {}}
+    )
+    assert empty.missing() == QuoteRequest.required_dot_fields()
+
+
+def test_missing_ignores_optional_fields():
+    """A request with all required fields filled is complete, even with country/code unset."""
+    request = QuoteRequest.model_validate(
+        {
+            "requester": {
+                "name": "John Doe",
+                "email": "john.doe@example.org",
+                "company": "Acme Inc.",
+            },
+            "origin": {"name": "Cartagena"},
+            "destination": {"name": "Rotterdam"},
+        }
+    )
+    assert request.missing() == []
 
 
 def test_dot_fields_covers_missing():

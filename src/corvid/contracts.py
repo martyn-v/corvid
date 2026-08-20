@@ -26,21 +26,33 @@ class Requester(BaseModel):
     name: str | None = Field(
         default=None,
         description="The requester's name as written in the email, e.g. John Doe",
+        json_schema_extra={"required_for_quote": True},
     )
     email: str | None = Field(
         default=None,
         description="The requester's email address as written in the email, e.g. john.doe@example.org",
+        json_schema_extra={"required_for_quote": True},
     )
     company: str | None = Field(
         default=None,
         description="The requester's company as written in the email, e.g. Acme Inc.",
+        json_schema_extra={"required_for_quote": True},
     )
 
 
 class Location(BaseModel):
     name: str | None = Field(
         default=None,
-        description="The location name as written in the email, e.g. Cartagena, ",
+        description="The location name as written in the email, e.g. Cartagena without country or code",
+        json_schema_extra={"required_for_quote": True},
+    )
+    country: str | None = Field(
+        default=None,
+        description="The location country as written in the email, e.g. Colombia without code",
+    )
+    code: str | None = Field(
+        default=None,
+        description="The location code as written in the email, e.g. CTG (IATA) or COCTG (UN/LOCODE) without country prefix",
     )
 
 
@@ -50,36 +62,43 @@ class QuoteRequest(BaseModel):
     destination: Location
 
     @staticmethod
+    def _walk_fields(
+        model: type[BaseModel], prefix: str = ""
+    ) -> list[tuple[str, object]]:
+        """Returns (dot path, FieldInfo) for every leaf field, in declaration order."""
+        fields = []
+        for name, info in model.model_fields.items():
+            path = f"{prefix}{name}"
+            nested = _nested_model(info.annotation)
+            if nested is not None:
+                fields.extend(QuoteRequest._walk_fields(nested, f"{path}."))
+            else:
+                fields.append((path, info))
+        return fields
+
+    @staticmethod
     def dot_fields() -> list[str]:
         """Returns a list of all fields in the quote request in dot notation."""
+        return [path for path, _ in QuoteRequest._walk_fields(QuoteRequest)]
 
-        def walk(model: type[BaseModel], prefix: str) -> list[str]:
-            fields = []
-            for name, info in model.model_fields.items():
-                path = f"{prefix}{name}"
-                nested = _nested_model(info.annotation)
-                if nested is not None:
-                    fields.extend(walk(nested, f"{path}."))
-                else:
-                    fields.append(path)
-            return fields
-
-        return walk(QuoteRequest, "")
+    @staticmethod
+    def required_dot_fields() -> list[str]:
+        """Returns the dot paths of fields marked required_for_quote in the ontology."""
+        return [
+            path
+            for path, info in QuoteRequest._walk_fields(QuoteRequest)
+            if (getattr(info, "json_schema_extra", None) or {}).get(
+                "required_for_quote"
+            )
+        ]
 
     def missing(self) -> list[str]:
         """Returns a list of missing required fields in the quote request."""
-        missing_fields = []
-        if not self.requester.company:
-            missing_fields.append("requester.company")
-        if not self.requester.name:
-            missing_fields.append("requester.name")
-        if not self.requester.email:
-            missing_fields.append("requester.email")
-        if not self.origin.name:
-            missing_fields.append("origin.name")
-        if not self.destination.name:
-            missing_fields.append("destination.name")
-        return missing_fields
+        return [
+            path
+            for path in QuoteRequest.required_dot_fields()
+            if not _leaf_value(self, path)
+        ]
 
 
 class Provenance(BaseModel):
