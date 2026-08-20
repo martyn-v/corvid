@@ -3,12 +3,19 @@ import time
 from random import Random
 from corvid.llm import create_model
 from corvid.logging import make_logger
-from harness.models import Case, CaseDraft, Persona, GenerationSettings, ConfigFile
+from harness.models import (
+    Case,
+    CaseDraft,
+    Persona,
+    GenerationSettings,
+    ConfigFile,
+    RendererSettings,
+)
 import yaml
 from langchain_core.language_models import BaseChatModel
 
 from harness.paths import EMAILS_DIR, CASES_PATH, WORLD_PATH
-from harness.renderer import email_raw, render_email, validate_email
+from harness.renderer import cache_key, email_raw, render_email, stored_key, validate_email
 
 logger = make_logger("generate")
 
@@ -90,12 +97,19 @@ def build_cases(personas: list[Persona], settings: GenerationSettings) -> list[C
     return cases
 
 
-def render(model: BaseChatModel, cases: list[Case], personas: list[Persona]) -> None:
+def render(
+    model: BaseChatModel,
+    cases: list[Case],
+    personas: list[Persona],
+    renderer: RendererSettings,
+) -> None:
     """Write the answer sheet (cases.jsonl) and render each case to an email.
 
-    The cache rule is "skip if the .eml exists and still validates against
-    its case": delete a file to re-render it; an invalid cached email is
-    re-rendered automatically. cases.jsonl is always rewritten in full.
+    The cache is content-keyed: a cached .eml is kept only when the render
+    key it carries matches the current facts + prompt + model and it still
+    validates against its case. A prompt or model change re-renders
+    everything; deleting a file still re-renders that one. cases.jsonl is
+    always rewritten in full.
     """
     persona_by_id = {p.id: p for p in personas}
     EMAILS_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,21 +118,31 @@ def render(model: BaseChatModel, cases: list[Case], personas: list[Persona]) -> 
         for case in cases:
             f.write(case.model_dump_json() + "\n")
             path = EMAILS_DIR / f"{case.key}.eml"
+            render_key = cache_key(case, persona_by_id[case.persona], renderer)
             if path.exists():
-                problems = validate_email(
-                    email_raw(path.read_text()), case, persona_by_id[case.persona]
-                )
-                if not problems:
-                    logger.debug("email cached", key=case.key)
-                    cached += 1
-                    continue
-                logger.warning(
-                    "cached email fails validation, re-rendering",
-                    key=case.key,
-                    problems=problems,
-                )
+                eml = path.read_text()
+                if stored_key(eml) != render_key:
+                    logger.info(
+                        "cached email has a stale render key, re-rendering",
+                        key=case.key,
+                    )
+                else:
+                    problems = validate_email(
+                        email_raw(eml), case, persona_by_id[case.persona]
+                    )
+                    if not problems:
+                        logger.debug("email cached", key=case.key)
+                        cached += 1
+                        continue
+                    logger.warning(
+                        "cached email fails validation, re-rendering",
+                        key=case.key,
+                        problems=problems,
+                    )
             start = time.perf_counter()
-            email = render_email(model, case, persona_by_id[case.persona])
+            email = render_email(
+                model, case, persona_by_id[case.persona], render_key=render_key
+            )
             with open(path, "w") as f_email:
                 f_email.write(email)
             rendered += 1
@@ -153,7 +177,7 @@ def main():
     renderer = config.generation.renderer
     model = create_model(model=renderer.model, temperature=renderer.temperature)
 
-    render(model, cases, config.personas)
+    render(model, cases, config.personas, renderer)
 
 
 if __name__ == "__main__":

@@ -86,9 +86,11 @@ uv run -m harness.eval      # run the agent over every email, score it
 uv run pytest               # tests
 ```
 
-Rendered emails are cached on disk; delete one to re-render it. A
-cached email that no longer validates against its case is re-rendered
-automatically. Eval
+Rendered emails are cached on disk, keyed on their content: each `.eml`
+carries an `X-Corvid-Render-Key` header hashing its facts, prompt, and
+model, so changing any of those re-renders exactly the affected emails.
+A cached email that no longer validates against its case is re-rendered
+automatically too. Eval
 runs in the `eval` graph group, wiped at the start of each run so every
 run is cold; pass `--cleanup` to also wipe it afterwards. Utility
 scripts live in [scripts/](scripts/): recall smoke checks, group wipes,
@@ -108,9 +110,9 @@ and an Ollama model benchmark against the real Graphiti ingest.
   question follows the ontology. First emails state everything, later
   ones get terse: the relationship arc that makes the questions curve
   fall.
-- **Content-keyed render cache.** The cache is "skip if the file
-  exists", so prompt or model changes require deleting emails by hand.
-  Key it on facts + prompt + model instead.
+- **Harden eval.** One exception from the graph at email 99 of 100
+  kills the whole run and loses its artifact. Catch per-case failures,
+  record them in the run artifact as errored, and keep going.
 - **Score more than two fields.** Only `origin.name` and
   `destination.name` are graded; requester name/email/company are
   `required_for_quote` and drive the ask loop but are never scored.

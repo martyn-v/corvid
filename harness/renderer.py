@@ -1,10 +1,11 @@
 import datetime
+import hashlib
 import re
 from email.utils import format_datetime
 
 from corvid.logging import make_logger
 from harness import text
-from harness.models import Case, Persona
+from harness.models import Case, Persona, RendererSettings
 from num2words import num2words
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
@@ -163,16 +164,12 @@ def email_raw(eml: str) -> str:
     return eml[eml.index("Subject:") :]
 
 
-def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
-    logger.debug(
-        "rendering email",
-        key=case.key,
-        persona=persona.id,
-        first_email=case.index == 1,
-        origin_omitted=case.origin_omitted,
-        change_email=case.change_reason is not None,
-    )
-    messages = [
+KEY_HEADER = "X-Corvid-Render-Key"
+
+
+def build_messages(case: Case, persona: Persona) -> list[SystemMessage | HumanMessage]:
+    """The exact prompt the renderer model sees for this case."""
+    return [
         SystemMessage(
             content=SYSTEM_PROMPT_TEMPLATE.format(
                 language=persona.style.language,
@@ -184,6 +181,47 @@ def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
             content=USER_PROMPT_TEMPLATE.format(facts=summarize_facts(case, persona))
         ),
     ]
+
+
+def cache_key(case: Case, persona: Persona, renderer: RendererSettings) -> str:
+    """Content key over everything that shapes the .eml: the formatted
+    prompts (facts, style, first-email rule), the model and temperature,
+    and the date (it lands in the constructed Date header)."""
+    h = hashlib.sha256()
+    parts = [
+        renderer.model,
+        repr(renderer.temperature),
+        case.date.isoformat(),
+        *(str(m.content) for m in build_messages(case, persona)),
+    ]
+    for part in parts:
+        h.update(part.encode())
+        h.update(b"\x1e")
+    return h.hexdigest()[:16]
+
+
+def stored_key(eml: str) -> str | None:
+    """The render key a cached .eml carries, from its transport headers only."""
+    headers = eml.split("\nSubject:", 1)[0]
+    match = re.search(rf"^{KEY_HEADER}: (\S+)$", headers, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def render_email(
+    model: BaseChatModel,
+    case: Case,
+    persona: Persona,
+    render_key: str | None = None,
+) -> str:
+    logger.debug(
+        "rendering email",
+        key=case.key,
+        persona=persona.id,
+        first_email=case.index == 1,
+        origin_omitted=case.origin_omitted,
+        change_email=case.change_reason is not None,
+    )
+    messages = build_messages(case, persona)
 
     attempts = 3
     for attempt in range(1, attempts + 1):
@@ -210,14 +248,15 @@ def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
     sent_at = datetime.datetime.combine(
         case.date, datetime.time(9, 0), tzinfo=datetime.timezone.utc
     )
-    headers = "\n".join(
-        [
-            f"From: {persona.contact.name} <{persona.contact.email}>",
-            f"To: {TO_ADDRESS}",
-            f"Date: {format_datetime(sent_at)}",
-            "MIME-Version: 1.0",
-            "Content-Type: text/plain; charset=utf-8",
-        ]
-    )
+    header_lines = [
+        f"From: {persona.contact.name} <{persona.contact.email}>",
+        f"To: {TO_ADDRESS}",
+        f"Date: {format_datetime(sent_at)}",
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=utf-8",
+    ]
+    if render_key is not None:
+        header_lines.append(f"{KEY_HEADER}: {render_key}")
+    headers = "\n".join(header_lines)
 
     return f"{headers}\n{raw.strip()}"
