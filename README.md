@@ -102,6 +102,18 @@ and an Ollama model benchmark against the real Graphiti ingest.
     so colleagues at the same company still share knowledge.
   - Verify graphiti reliably populates `Contact.email`; fallback is
     matching the Contact by From display-name.
+- **Give the world more to omit.** Today origin is the only omittable
+  fact, and the generator forces email 1 to state it — so memory always
+  knows the answer before the first omission and a legitimate question
+  is impossible by construction. Mode and commodity are stable
+  per-customer facts sitting in the world but absent from
+  `QuoteRequest`. Plan: add them to the contract as
+  `required_for_quote`, give personas per-fact omission (the grown
+  shape in [docs/persona-example.yaml](docs/persona-example.yaml)), and
+  grow the ontology to match — one edge type per new fact; the recall
+  question follows the ontology. First emails state everything, later
+  ones get terse: the relationship arc that makes the questions curve
+  fall.
 - **Per-episode question series.** Eval prints one aggregate count; the
   headline claim is questions *falling over the sequence*. Emit
   questions-per-episode, per persona, in send order.
