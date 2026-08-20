@@ -38,6 +38,34 @@ A 3D graph that grows on screen while episodes replay. Nodes and edges
 appear when the agent learns. An edge flips when a customer changes. Next
 to it: the questions curve, going down.
 
+## Roadmap
+
+- **Ask step**: turn the remaining missing fields into questions back to
+  the customer, and feed the answers into memory as
+  `answered_question` provenance.
+- **Learn step in the agent loop**: the agent learns each episode into
+  the graph as it handles it. Evals currently run against a graph
+  pre-built by the ingest-all script, so recall is tested against a
+  finished graph rather than one that grows per episode.
+- **Anchor identity on the sender's email, not the company name.**
+  The company is a *derived* fact: emails without a signature have no
+  extractable company, and even when extraction infers one (e.g.
+  `acme-alimentos` from the domain), recall does an exact string match
+  against the Customer node name (`ACME Alimentos SAS`) and silently
+  misses. The sender address is the only identifier guaranteed present
+  in every email. Plan:
+  - Give the `Contact` entity an `email` attribute in the ontology
+    (same pattern as `Location.locode`); the address sits verbatim in
+    the From line of every episode.
+  - Anchor recall with `MATCH (n:Entity:Contact {email: $email})` and
+    use that node as `center_node_uuid`; key `recall_missing_fields` on
+    `requester.email` instead of `requester.company`.
+  - Keep the edge ontology unchanged — `SHIPS_FROM`/`SHIPS_TO` stay on
+    Customer, reachable via `WORKS_FOR` (two hops from the centroid),
+    so colleagues at the same company still share knowledge.
+  - Verify graphiti reliably populates `Contact.email`; fallback is
+    matching the Contact by From display-name.
+
 ## Lineage
 
 - [Squawkbox](https://github.com/martyn-v/squawkbox): one state, one

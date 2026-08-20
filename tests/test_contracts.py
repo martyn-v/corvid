@@ -28,6 +28,14 @@ def test_required_dot_fields():
     ]
 
 
+def test_omitted_nested_objects_validate_to_empty_models():
+    """Extraction may omit origin/destination entirely; that parses as empty, not an error."""
+    request = QuoteRequest.model_validate({"requester": {"name": "John Doe"}})
+    assert request.origin.name is None
+    assert "origin.name" in request.missing()
+    assert "destination.name" in request.missing()
+
+
 def test_missing_reports_all_required_on_empty_request():
     """An empty request is missing exactly the required fields."""
     empty = QuoteRequest.model_validate(

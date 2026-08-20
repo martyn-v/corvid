@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, Union, get_args, get_origin
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def _leaf_value(model: BaseModel, path: str) -> object:
@@ -23,6 +23,8 @@ def _nested_model(annotation: object) -> type[BaseModel] | None:
 
 
 class Requester(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(
         default=None,
         description="The requester's name as written in the email, e.g. John Doe",
@@ -41,6 +43,8 @@ class Requester(BaseModel):
 
 
 class Location(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(
         default=None,
         description="The location name as written in the email, e.g. Cartagena without country or code",
@@ -57,9 +61,17 @@ class Location(BaseModel):
 
 
 class QuoteRequest(BaseModel):
-    requester: Requester
-    origin: Location
-    destination: Location
+    model_config = ConfigDict(extra="forbid")
+
+    requester: Requester = Field(
+        default_factory=Requester, description="The person requesting the quote"
+    )
+    origin: Location = Field(
+        default_factory=Location, description="The origin location for the quote"
+    )
+    destination: Location = Field(
+        default_factory=Location, description="The destination location for the quote"
+    )
 
     @staticmethod
     def _walk_fields(

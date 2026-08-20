@@ -6,6 +6,7 @@ from datetime import datetime
 from corvid.agent.extract import (
     QuoteRequestExtractionError,
     extract_quote_request,
+    render_email_prompt,
 )
 from corvid.agent.parse_email import EmailAddress, ParsedEmail
 
@@ -39,6 +40,48 @@ def test_extract_quote_request_with_minimal_valid_input():
     assert result.request.requester.email == "john.doe@example.com"
     assert result.request.origin.name == "Cartagena"
     assert result.request.destination.name == "Miami"
+
+
+def test_render_email_prompt_includes_from_subject_and_body():
+    """The model sees the headers, not just the body — the requester lives in From."""
+    prompt = render_email_prompt(EMAIL)
+    assert prompt == (
+        "From: John Doe <john.doe@example.com>\n"
+        "Subject: Request for Quote\n"
+        "\n"
+        "Please provide a quote for the following request."
+    )
+
+
+def test_render_email_prompt_omits_absent_headers():
+    """Missing sender/subject drop their header lines instead of rendering None."""
+    email = EMAIL.model_copy(update={"subject": None, "sender": None})
+    prompt = render_email_prompt(email)
+    assert prompt == "Please provide a quote for the following request."
+
+
+def test_render_email_prompt_sender_without_display_name():
+    """A bare address renders without the empty <> decoration."""
+    email = EMAIL.model_copy(
+        update={"sender": EmailAddress(display_name=None, address="jd@example.com")}
+    )
+    assert render_email_prompt(email).startswith("From: jd@example.com\n")
+
+
+def test_extract_sends_rendered_email_to_the_model():
+    """extract_quote_request passes headers + body as the human message."""
+    captured: list = []
+
+    class RecordingModel(GenericFakeChatModel):
+        def _generate(self, messages, **kwargs):
+            captured.append(messages)
+            return super()._generate(messages, **kwargs)
+
+    model = RecordingModel(messages=iter([MINIMAL_VALID_QUOTE_REQUEST_JSON]))
+    extract_quote_request(EMAIL, model=model)
+
+    human = captured[0][-1]
+    assert human.content == render_email_prompt(EMAIL)
 
 
 def test_throws_on_invalid_json():
