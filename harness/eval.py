@@ -37,7 +37,6 @@ async def main():
         qr = result["quote_request"]
         print(f"{case.key}: {qr.origin} -> {qr.destination}")
         _summarize_provenance(result["provenance"])
-        break
 
 
 if __name__ == "__main__":

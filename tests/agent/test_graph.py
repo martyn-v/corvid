@@ -77,7 +77,14 @@ async def test_graph_with_recall_and_fill():
     )
 
     facts: list[RecalledFact] = [
-        RecalledFact(fact="Origin is Cartagena", uuid="1", valid_at=None)
+        RecalledFact(
+            fact="Acme Alimentos ships from Cartagena",
+            uuid="1",
+            edge_name="SHIPS_FROM",
+            source_name="Acme Alimentos",
+            target_name="Cartagena",
+            valid_at=None,
+        )
     ]
 
     graph = build_live_graph(extraction_response, facts)

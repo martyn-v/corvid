@@ -1,8 +1,20 @@
 import pytest
 
-from corvid.agent.recall import recall_missing_fields
+from corvid.agent.recall import RECALL_EDGES, RECALL_QUESTIONS, recall_missing_fields
 from corvid.contracts import QuoteRequest
+from corvid.memory.ontology import edge_types
 from corvid.memory.port import FakeMemory, RecalledFact
+
+
+def test_recall_edges_mirror_recall_questions():
+    """Every recall question has a matching edge type and value endpoint."""
+    assert RECALL_EDGES == {
+        "origin.name": ("SHIPS_FROM", "target"),
+        "destination.name": ("SHIPS_TO", "target"),
+        "requester.name": ("WORKS_FOR", "source"),
+    }
+    assert RECALL_EDGES.keys() == RECALL_QUESTIONS.keys()
+    assert all(name in edge_types for name, _ in RECALL_EDGES.values())
 
 
 @pytest.mark.asyncio
@@ -21,7 +33,16 @@ async def test_recall_missing_fields():
         }
     )
 
-    fake_facts = [RecalledFact(fact="test", uuid="1234", valid_at=None)]
+    fake_facts = [
+        RecalledFact(
+            fact="Acme Corp ships from Cartagena",
+            uuid="1234",
+            edge_name="SHIPS_FROM",
+            source_name="Acme Corp",
+            target_name="Cartagena",
+            valid_at=None,
+        )
+    ]
     memory = FakeMemory(fake_facts)
 
     # ACT:
@@ -51,7 +72,16 @@ async def test_returns_empty_list_for_unknowable_keys():
         }
     )
 
-    fake_facts = [RecalledFact(fact="test", uuid="1234", valid_at=None)]
+    fake_facts = [
+        RecalledFact(
+            fact="Acme Corp ships from Cartagena",
+            uuid="1234",
+            edge_name="SHIPS_FROM",
+            source_name="Acme Corp",
+            target_name="Cartagena",
+            valid_at=None,
+        )
+    ]
     memory = FakeMemory(fake_facts)
 
     # ACT:

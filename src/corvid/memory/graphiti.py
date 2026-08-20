@@ -89,8 +89,27 @@ class GraphitiMemory:
         edges = await self.graphiti.search(
             question, center_node_uuid=records[0]["uuid"], num_results=3
         )
+        edges = [e for e in edges if e.invalid_at is None]  # drop superseded facts
+        if not edges:
+            return []
+
+        uuids = {u for e in edges for u in (e.source_node_uuid, e.target_node_uuid)}
+        name_records, _, _ = await self.graphiti.driver.execute_query(
+            "MATCH (n:Entity) WHERE n.uuid IN $uuids RETURN n.uuid AS uuid, n.name AS name",
+            uuids=list(uuids),
+        )
+        names = {r["uuid"]: r["name"] for r in name_records}
         return [
-            RecalledFact(fact=e.fact, uuid=e.uuid, valid_at=e.valid_at) for e in edges
+            RecalledFact(
+                fact=e.fact,
+                uuid=e.uuid,
+                edge_name=e.name,
+                source_name=names[e.source_node_uuid],
+                target_name=names[e.target_node_uuid],
+                valid_at=e.valid_at,
+                invalid_at=e.invalid_at,
+            )
+            for e in edges
         ]
 
     async def learn(self, name: str, body: str, date: datetime) -> None:

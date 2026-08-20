@@ -5,9 +5,13 @@ from pydantic import BaseModel
 
 
 class RecalledFact(BaseModel):
-    fact: str
+    fact: str  # the edge's prose rendering — for logs, never parsed
     uuid: str
+    edge_name: str  # edge type from the ontology, e.g. SHIPS_FROM
+    source_name: str
+    target_name: str
     valid_at: datetime | None
+    invalid_at: datetime | None = None
 
 
 class Memory(Protocol):
