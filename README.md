@@ -31,7 +31,10 @@ JSONL answer sheet. No person labels anything, ever.
 
 **An LLM renders, never authors.** Each case's facts are rendered into
 a plausible `.eml` email by a local model. The answer key exists before
-the prose does.
+the prose does — and a cheap validation pass keeps them agreeing: every
+rendered email is checked against its case (each fact stated, the
+origin absent when the coin omitted it), and the render is retried
+until it passes.
 
 **The agent is a LangGraph state graph**
 ([src/corvid/agent/graph.py](src/corvid/agent/graph.py)):
@@ -79,7 +82,9 @@ uv run -m harness.eval      # run the agent over every email, score it
 uv run pytest               # tests
 ```
 
-Rendered emails are cached on disk; delete one to re-render it. Eval
+Rendered emails are cached on disk; delete one to re-render it. A
+cached email that no longer validates against its case is re-rendered
+automatically. Eval
 runs in the `eval` graph group, wiped at the start of each run so every
 run is cold; pass `--cleanup` to also wipe it afterwards. Utility
 scripts live in [scripts/](scripts/): recall smoke checks, group wipes,
@@ -108,10 +113,6 @@ and an Ollama model benchmark against the real Graphiti ingest.
 - **Persisted run artifact.** Eval only prints. Write scores,
   provenance, and questions to a JSONL per run so runs are comparable
   across memory designs.
-- **Renderer validation pass.** Nothing checks a rendered email states
-  its facts — or omits the origin when the coin said so. One cheap
-  check per email against its case, so the answer key can't silently
-  disagree with the prose.
 - **Content-keyed render cache.** The cache is "skip if the file
   exists", so prompt or model changes require deleting emails by hand.
   Key it on facts + prompt + model instead.

@@ -2,6 +2,15 @@
 
 Quick notes to my future self. Details in [model-notes.md](model-notes.md).
 
+## 2026-08-20 — renderer validation
+
+- The renderer loves spelling numbers out — "twenty-one pieces", even
+  "nine thousand four hundred thirty-six kilograms". A digits-only check
+  flagged 19 of 30 perfectly good emails. num2words (per persona
+  language) on both sides fixed it.
+- Validate the raw render, not the .eml — the From header states the
+  sender's name and email for free and would hide a missing signature.
+
 ## 2026-08-20 — anchoring identity on the sender email
 
 - Graphiti fills `Contact.email` verbatim from the From line, first try, both personas — didn't even need the display-name fallback I built.

@@ -3,7 +3,9 @@ import re
 from email.utils import format_datetime
 
 from corvid.logging import make_logger
+from harness import text
 from harness.models import Case, Persona
+from num2words import num2words
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -80,6 +82,61 @@ def destination_leaked_as_origin(body: str, destination: str) -> bool:
     return re.search(pattern, body, re.IGNORECASE | re.DOTALL) is not None
 
 
+def _word_key(s: str) -> str:
+    """Normalized for spelled-out number comparison: folded, connectors dropped."""
+    s = re.sub(r"[-,]", " ", text.fold(s))
+    s = re.sub(r"\b(and|y)\b", " ", s)
+    return " ".join(s.split())
+
+
+def _number_stated(body: str, value: int, language: str) -> bool:
+    """The renderer writes '9,385 kg' or 'twenty-one pieces'; both state the fact."""
+    collapsed = re.sub(r"(?<=\d)[,.\s](?=\d)", "", body)
+    if re.search(rf"\b{value}\b", collapsed):
+        return True
+    return _word_key(num2words(value, lang=language)) in _word_key(body)
+
+
+def validate_email(raw: str, case: Case, persona: Persona) -> list[str]:
+    """Check a rendered email against its case; returns problems, empty if valid.
+
+    The cheap contract between the answer key and the prose: every fact the
+    case states must appear, and the origin must not appear when the coin
+    omitted it.
+    """
+    problems = []
+    folded = text.fold(raw)
+
+    origin_city = text.city(case.origin.name)
+    if case.origin_omitted:
+        if origin_city in folded:
+            problems.append(f"origin omitted but '{case.origin.name}' appears")
+    elif origin_city not in folded:
+        problems.append(f"origin '{case.origin.name}' not stated")
+
+    if text.city(case.destination.name) not in folded:
+        problems.append(f"destination '{case.destination.name}' not stated")
+    if destination_leaked_as_origin(raw, case.destination.name):
+        problems.append(
+            f"destination '{case.destination.name}' presented as the departure point"
+        )
+
+    language = persona.style.language
+    if not _number_stated(raw, case.pieces, language):
+        problems.append(f"pieces '{case.pieces}' not stated")
+    if not _number_stated(raw, case.weight_kg, language):
+        problems.append(f"weight '{case.weight_kg}' not stated")
+
+    for label, value in (
+        ("name", persona.contact.name),
+        ("company", persona.company),
+        ("email", persona.contact.email),
+    ):
+        if value not in raw:
+            problems.append(f"sender {label} '{value}' missing")
+    return problems
+
+
 def summarize_facts(case: Case, persona: Persona) -> str:
     facts = []
     facts.append(f"- Sender Company: {persona.company}")
@@ -95,6 +152,15 @@ def summarize_facts(case: Case, persona: Persona) -> str:
     if case.change_reason is not None:
         facts.append(f"- Mention: {case.change_reason}")
     return "\n".join(facts)
+
+
+def email_raw(eml: str) -> str:
+    """The rendered part of an .eml this renderer wrote: Subject onward.
+
+    The transport headers above it are constructed, not rendered — they
+    state the sender's name and address for free, so they don't count.
+    """
+    return eml[eml.index("Subject:") :]
 
 
 def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
@@ -127,16 +193,18 @@ def render_email(model: BaseChatModel, case: Case, persona: Persona) -> str:
             if isinstance(response.content, str)
             else str(response.content)
         )
-        if not destination_leaked_as_origin(raw, case.destination.name):
+        problems = validate_email(raw, case, persona)
+        if not problems:
             break
         logger.warning(
-            "destination rendered as origin, retrying",
+            "rendered email fails validation, retrying",
             key=case.key,
             attempt=attempt,
+            problems=problems,
         )
     else:
         raise ValueError(
-            f"{case.key}: destination presented as origin after {attempts} attempts:\n{raw}"
+            f"{case.key}: invalid after {attempts} attempts ({'; '.join(problems)}):\n{raw}"
         )
 
     sent_at = datetime.datetime.combine(

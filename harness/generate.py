@@ -8,7 +8,7 @@ import yaml
 from langchain_core.language_models import BaseChatModel
 
 from harness.paths import EMAILS_DIR, CASES_PATH, WORLD_PATH
-from harness.renderer import render_email
+from harness.renderer import email_raw, render_email, validate_email
 
 logger = make_logger("generate")
 
@@ -93,8 +93,9 @@ def build_cases(personas: list[Persona], settings: GenerationSettings) -> list[C
 def render(model: BaseChatModel, cases: list[Case], personas: list[Persona]) -> None:
     """Write the answer sheet (cases.jsonl) and render each case to an email.
 
-    The cache rule is "skip if the .eml exists": delete a file to re-render
-    it. cases.jsonl is always rewritten in full.
+    The cache rule is "skip if the .eml exists and still validates against
+    its case": delete a file to re-render it; an invalid cached email is
+    re-rendered automatically. cases.jsonl is always rewritten in full.
     """
     persona_by_id = {p.id: p for p in personas}
     EMAILS_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,9 +105,18 @@ def render(model: BaseChatModel, cases: list[Case], personas: list[Persona]) -> 
             f.write(case.model_dump_json() + "\n")
             path = EMAILS_DIR / f"{case.key}.eml"
             if path.exists():
-                logger.debug("email cached", key=case.key)
-                cached += 1
-                continue
+                problems = validate_email(
+                    email_raw(path.read_text()), case, persona_by_id[case.persona]
+                )
+                if not problems:
+                    logger.debug("email cached", key=case.key)
+                    cached += 1
+                    continue
+                logger.warning(
+                    "cached email fails validation, re-rendering",
+                    key=case.key,
+                    problems=problems,
+                )
             start = time.perf_counter()
             email = render_email(model, case, persona_by_id[case.persona])
             with open(path, "w") as f_email:

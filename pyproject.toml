@@ -10,6 +10,7 @@ dependencies = [
     "graphiti-core>=0.29.3",
     "langchain-ollama>=1.1.0",
     "langgraph>=1.2.11",
+    "num2words>=0.5.14",
     "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
     "structlog>=26.1.0",
