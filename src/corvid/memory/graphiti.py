@@ -4,6 +4,8 @@ from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
+from langsmith import traceable
+from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
 from datetime import datetime
 from graphiti_core.nodes import EpisodeType
@@ -25,9 +27,14 @@ class GraphitiConfig:
     embedding_dim: int
 
 
+def _make_traced_client(api_key: str, base_url: str) -> AsyncOpenAI:
+    """Create an OpenAI client whose chat/embedding calls trace to LangSmith."""
+    return wrap_openai(AsyncOpenAI(api_key=api_key, base_url=base_url))
+
+
 def _make_nothink_client(api_key: str, base_url: str) -> AsyncOpenAI:
     """Create an LLM client using OpenAI but set reasoning_effort to none so we dont use thinking for Ollama models"""
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    client = _make_traced_client(api_key, base_url)
     orig_create = client.chat.completions.create
 
     async def create(*args, **kwargs):
@@ -65,9 +72,13 @@ def make_graphiti(config: GraphitiConfig) -> Graphiti:
                 embedding_model=config.embedding_model,
                 embedding_dim=config.embedding_dim,
                 base_url=config.llm_base_url,
-            )
+            ),
+            client=_make_traced_client(config.llm_api_key, config.llm_base_url),
         ),
-        cross_encoder=OpenAIRerankerClient(config=llm_config),
+        cross_encoder=OpenAIRerankerClient(
+            config=llm_config,
+            client=_make_traced_client(config.llm_api_key, config.llm_base_url),
+        ),
     )
     return graphiti
 
@@ -96,6 +107,7 @@ class GraphitiMemory:
     def _group_params(self) -> dict:
         return {} if self.group_id is None else {"group_id": self.group_id}
 
+    @traceable(name="graphiti.recall")
     async def recall(
         self, email: str, question: str, contact_name: str | None = None
     ) -> list[RecalledFact]:
@@ -152,6 +164,7 @@ class GraphitiMemory:
             for e in edges
         ]
 
+    @traceable(name="graphiti.learn")
     async def learn(
         self,
         name: str,
